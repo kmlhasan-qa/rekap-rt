@@ -544,18 +544,11 @@
     const realNow = sum(aktif, r => S.paid.get(r.id + '|' + now) || 0);
     const realPrev = sum(aktif, r => S.paid.get(r.id + '|' + prev) || 0);
     const rutin = aktif.filter(r => [1, 2, 3].every(i => statusBulan(r, ymAdd(now, -i)).s !== 'unpaid')).length;
-    // Realisasi rata-rata tahun berjalan = iuran warga yang diterima (menurut tanggal bayar), tanpa pemasukan non-iuran
-    const thisY = +now.slice(0, 4);
-    const msNow = monthsOfYear(thisY).filter(m => m <= now);
-    const realBulan = m => sum(S.d.transaksi.filter(t => t.tipe === 'iuran' && t.tanggal.slice(0, 7) === m), t => t.nilai);
-    const avgNow = msNow.length ? sum(msNow, realBulan) / msNow.length : 0;
-    const pct = v => potensi ? Math.round(v / potensi * 100) + '%' : '';
     el.innerHTML = `
       <div class="cards">
         <div class="card"><div class="label">Jumlah rumah aktif</div><div class="value">${aktif.length}</div></div>
         <div class="card"><div class="label">Rutin bayar (3 bulan terakhir)</div><div class="value">${rutin}</div></div>
         <div class="card"><div class="label">Potensi penerimaan / bulan</div><div class="value">${rp(potensi)}</div></div>
-        <div class="card"><div class="label">Realisasi rata-rata iuran ${thisY} / bulan</div><div class="value">${rp(Math.round(avgNow))} <span class="small muted">${pct(avgNow)}</span></div><div class="small muted">Total ${rp(sum(msNow, realBulan))} · ${msNow.length} bulan (Jan–${BLN[+now.slice(5) - 1]})</div></div>
         <div class="card"><div class="label">Realisasi ${fmtBulan(prev)}</div><div class="value">${rp(realPrev)} <span class="small muted">${potensi ? Math.round(realPrev / potensi * 100) : 0}%</span></div></div>
         <div class="card"><div class="label">Realisasi ${fmtBulan(now)}</div><div class="value">${rp(realNow)} <span class="small muted">${potensi ? Math.round(realNow / potensi * 100) : 0}%</span></div></div>
       </div>
