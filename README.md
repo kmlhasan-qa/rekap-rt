@@ -13,13 +13,13 @@ Frontend statis (HTML/CSS/JS) untuk GitHub Pages, backend Supabase.
   Bagikan ke warga hanya alamat pertama. Akun admin yang membuka alamat warga tetap melihat tampilan warga.
 
 ## Coba dulu (mode demo)
-Biarkan `js/config.js` kosong lalu buka `index.html` lewat server lokal
+Biarkan `config.js` kosong lalu buka `index.html` lewat server lokal
 (mis. `python3 -m http.server`). Buka `index.html` untuk tampilan warga atau `admin.html` untuk admin, lalu tekan "Masuk".
 Data contoh tersimpan di browser saja dan bisa di-reset dari menu Impor / Ekspor.
 
 ## Setup produksi
 1. **Buat project Supabase** baru di https://supabase.com (terpisah dari project lain).
-2. **Jalankan SQL**: Supabase → SQL Editor → tempel isi `supabase/schema.sql` → Run.
+2. **Jalankan SQL**: Supabase → SQL Editor → tempel isi `schema.sql` → Run.
 3. **Matikan pendaftaran mandiri**: Authentication → Sign In / Providers → Email →
    matikan *Allow new users to sign up*.
 4. **Buat akun admin**: Authentication → Users → Add user (centang *Auto Confirm User*),
@@ -27,7 +27,7 @@ Data contoh tersimpan di browser saja dan bisa di-reset dari menu Impor / Ekspor
    ```sql
    update public.profiles set role = 'admin', nama = 'Nama Anda' where email = 'email@anda.com';
    ```
-5. **Isi `js/config.js`** dengan Project URL dan anon public key (Project Settings → API).
+5. **Isi `config.js`** dengan Project URL dan anon public key (Project Settings → API).
 6. **Deploy ke GitHub Pages**: buat repo baru, upload semua file, lalu
    Settings → Pages → Deploy from branch `main` / root.
 7. Tambahkan URL GitHub Pages di Supabase → Authentication → URL Configuration → Site URL.
@@ -40,13 +40,13 @@ Data contoh tersimpan di browser saja dan bisa di-reset dari menu Impor / Ekspor
 
 ## Struktur
 ```
-index.html          halaman warga (laporan)
-admin.html          halaman admin
-css/style.css       tampilan
-js/config.js        kunci Supabase (kosong = mode demo)
-js/db.js            akses data (Supabase / demo)
-js/app.js           halaman & logika laporan
-supabase/schema.sql tabel, RLS, trigger audit, data awal
+index.html   halaman warga (laporan)
+admin.html   halaman admin
+style.css    tampilan
+config.js    kunci Supabase (kosong = mode demo)
+db.js        akses data (Supabase / demo)
+app.js       halaman & logika laporan
+schema.sql   tabel, RLS, trigger audit, data awal
 ```
 
 ## Pencairan gaji mitra
