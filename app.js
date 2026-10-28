@@ -1682,7 +1682,7 @@
 
     const pages = doc.internal.getNumberOfPages();
     for (let i = 1; i <= pages; i++) { doc.setPage(i); doc.setFontSize(8); doc.setTextColor(120); doc.text(`${nama} - ${y} - halaman ${i}/${pages}`, 14, 203); }
-    doc.save(`Laporan-Keuangan-${y}.pdf`);
+    { const t = todayISO(); doc.save(`Laporan-Keuangan-${t.slice(8, 10)}${t.slice(5, 7)}${t.slice(0, 4)}.pdf`); }
   }
 
   function exportExcel() {
