@@ -256,8 +256,7 @@ insert into public.kategori (nama, urutan) values
   ('Operasional - Listrik, Air, Pulsa, Internet, Galon, dll', 3),
   ('Operasional - Biaya Admin, Pajak, dll', 4),
   ('Maintenance Aset, Pemeliharaan Taman, Cluster, dll', 5),
-  ('Lainnya', 9),
-  ('Kasbon Mitra (belum terealisasi)', 90)
+  ('Lainnya', 9)
 on conflict (nama) do nothing;
 
 insert into public.dompet (nama, jenis, saldo_awal) values

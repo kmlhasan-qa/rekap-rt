@@ -113,12 +113,7 @@
     return s;
   }
   const totalKas = beforeDate => sum(S.d.dompet, w => saldo(w.id, beforeDate));
-  // Kasbon mitra yang uangnya sudah keluar tapi belum dipotong dari gaji = pengeluaran belum terealisasi.
-  // Tetap dihitung sebagai bagian kas (buku), ditampilkan terpisah.
-  const isUnreal = t => t.tipe === 'pengeluaran' && /belum terealisasi/i.test((get('kategori', t.kategori_id) || {}).nama || '');
-  const kasbonBelum = (dompetIds, beforeDate) => sum(S.d.transaksi.filter(t => isUnreal(t) && (!dompetIds || dompetIds.includes(t.dompet_id)) && (!beforeDate || t.tanggal < beforeDate)), t => t.nilai);
-  const isPinjaman = t => t.tipe === 'pengeluaran' && /^Pinjaman\/dibayar dimuka/.test(t.keterangan || '');
-  const bulanKas = t => isPinjaman(t) ? (t.bulan || t.tanggal.slice(0, 7)) : t.tanggal.slice(0, 7);
+
 
   function statusBulan(r, ym) {
     const paid = S.paid.get(r.id + '|' + ym) || 0;
@@ -244,9 +239,8 @@
       }
       const tx = S.d.transaksi.filter(t => t.tanggal.slice(0, 7) === ym);
       const iuran = sum(tx.filter(t => t.tipe === 'iuran'), t => t.nilai), non = sum(tx.filter(t => t.tipe === 'pemasukan'), t => t.nilai);
-      const keluar = sum(S.d.transaksi.filter(t => t.tipe === 'pengeluaran' && !isUnreal(t) && bulanKas(t) === ym), t => t.nilai);
-      const end = ymAdd(ym, 1) + '-01';
-      rows.push({ ym, sheet: false, iuran, non, masuk: iuran + non, keluar, selisih: iuran + non - keluar, saldo: totalKas(end) + kasbonBelum(null, end) });
+      const keluar = sum(tx.filter(t => t.tipe === 'pengeluaran'), t => t.nilai);
+      rows.push({ ym, sheet: false, iuran, non, masuk: iuran + non, keluar, selisih: iuran + non - keluar, saldo: totalKas(ymAdd(ym, 1) + '-01') });
     });
     return rows;
   }
@@ -265,21 +259,18 @@
     const kasAwal = kasAwalTahun(y);
     const shown = ringkasanTahun(y);
     const isNowY = y === new Date().getFullYear();
-    const kasAkhir = isNowY || !shown.length ? totalKas() + kasbonBelum() : shown[shown.length - 1].saldo;
+    const kasAkhir = isNowY || !shown.length ? totalKas() : shown[shown.length - 1].saldo;
     const rpx = v => v == null ? '—' : rp(v);
-    const rekIds = S.d.dompet.filter(w => w.jenis === 'rekening').map(w => w.id), tunIds = S.d.dompet.filter(w => w.jenis === 'tunai').map(w => w.id);
-    const kbRek = kasbonBelum(rekIds), kbTun = kasbonBelum(tunIds);
-    const rek = sum(rekIds, id => saldo(id)) + kbRek;
-    const tunai = sum(tunIds, id => saldo(id)) + kbTun;
-    const kbNote = v => v && isAdmin() ? `<div class="small muted">termasuk kasbon mitra belum terealisasi ${rp(v)}</div>` : '';
+    const rek = sum(S.d.dompet.filter(w => w.jenis === 'rekening'), w => saldo(w.id));
+    const tunai = sum(S.d.dompet.filter(w => w.jenis === 'tunai'), w => saldo(w.id));
     const isNow = y === new Date().getFullYear(), adm = isAdmin();
     el.innerHTML = `
       <div class="toolbar">${yearSelect()}<span class="spacer"></span>${framed ? '' : '<button class="btn desk-only" id="printBtn">Print</button>'}</div>
       <div class="cards">
         <div class="card"><div class="label">Kas awal ${y}</div><div class="value">${rpx(kasAwal)}</div></div>
         <div class="card"><div class="label">${isNow ? 'Kas berjalan' : 'Kas akhir ' + y}</div><div class="value">${rpx(kasAkhir)}</div></div>
-        <div class="card"><div class="label">Saldo rekening (saat ini)</div><div class="value">${rp(rek)}</div>${kbNote(kbRek)}</div>
-        <div class="card"><div class="label">Saldo tunai (saat ini)</div><div class="value">${rp(tunai)}</div>${kbNote(kbTun)}</div>
+        <div class="card"><div class="label">Saldo rekening (saat ini)</div><div class="value">${rp(rek)}</div></div>
+        <div class="card"><div class="label">Saldo tunai (saat ini)</div><div class="value">${rp(tunai)}</div></div>
       </div>
       <div class="panel"><h3>Pemasukan vs pengeluaran ${y}</h3><div class="chart-box"><canvas id="chart"></canvas></div></div>
       <div class="mlist">${shown.slice().reverse().map(r => `<div class="mitem">
@@ -298,7 +289,7 @@
       ${shown.some(r => r.future) ? `<p class="hint" style="margin-top:8px">Tahun ${y} belum berjalan. Pemasukan = iuran yang sudah dibayar dimuka untuk bulan tersebut; pengeluaran = yang dibebankan ke bulan tersebut. Cicilan hutang mitra yang akan dipotong: ${shown.filter(r => r.hutang).map(r => `${BLN[+r.ym.slice(5) - 1]} ${rp(r.hutang)}`).join(', ') || 'tidak ada'}. Hanya terlihat oleh admin.</p>` : ''}
       ${shown.some(r => r.sheet) ? `<p class="hint" style="margin-top:8px">Angka s.d. ${fmtBulan(ringkasanSheet().cutoff)} diambil dari Ringkasan Google Sheet lama.</p>` : ''}
       ${adm ? `<div class="panel" style="margin-top:18px"><h3>Saldo per dompet (saat ini)</h3><div class="table-wrap"><table><tbody>
-        ${S.d.dompet.map(w => `<tr><td>${esc(w.nama)} <span class="badge">${w.jenis}</span></td><td class="num">${rp(saldo(w.id) + kasbonBelum([w.id]))}</td></tr>`).join('')}
+        ${S.d.dompet.map(w => `<tr><td>${esc(w.nama)} <span class="badge">${w.jenis}</span></td><td class="num">${rp(saldo(w.id))}</td></tr>`).join('')}
       </tbody></table></div></div>` : ''}`;
     bindYear(el, rerender);
     if ($('#printBtn', el)) $('#printBtn', el).onclick = () => window.print();
@@ -383,12 +374,10 @@
       <div class="table-wrap"><table class="sectioned">
         <thead><tr><th>Kategori</th><th class="num">Nilai</th></tr></thead>
         ${months.map(m => `<tbody><tr class="sep"><td colspan="2">${fmtBulan(m)}</td></tr>
-          ${kats.filter(k => !/belum terealisasi/i.test(k.nama)).map(k => { const v = sum(cell(k.id, m), t => t.nilai); return v ? `<tr class="clickable-row" data-k="${k.id}" data-m="${m}"><td class="wrap">${esc(k.nama)}</td><td class="num">${rp(v)}</td></tr>` : ''; }).join('')}
-          <tr class="subtotal"><td>Total ${fmtBulan(m)}</td><td class="num">${rp(sum(tx.filter(t => bm(t) === m && !isUnreal(t)), t => t.nilai))}</td></tr>
-          ${!isAdmin() ? '' : kats.filter(k => /belum terealisasi/i.test(k.nama)).map(k => { const v = sum(cell(k.id, m), t => t.nilai); return v ? `<tr class="clickable-row unreal" data-k="${k.id}" data-m="${m}"><td class="wrap">Kasbon mitra <span class="badge warn">belum terealisasi</span></td><td class="num">${rp(v)}</td></tr>` : ''; }).join('')}</tbody>`).join('') || '<tbody><tr><td colspan="2" class="empty">Belum ada pengeluaran</td></tr></tbody>'}
-        <tfoot><tr class="total"><td>Total ${S.year}</td><td class="num">${rp(sum(tx.filter(t => !isUnreal(t)), t => t.nilai))}</td></tr></tfoot>
-      </table></div>
-      ${isAdmin() && tx.some(isUnreal) ? '<p class="hint" style="margin-top:8px">Kasbon mitra belum terealisasi: uang sudah dibayarkan ke mitra tetapi belum dipotong dari gaji, sehingga belum dihitung sebagai pengeluaran. Akan menjadi pengeluaran gaji di bulan cicilannya dipotong.</p>' : ''}`;
+          ${kats.map(k => { const v = sum(cell(k.id, m), t => t.nilai); return v ? `<tr class="clickable-row" data-k="${k.id}" data-m="${m}"><td class="wrap">${esc(k.nama)}</td><td class="num">${rp(v)}</td></tr>` : ''; }).join('')}
+          <tr class="subtotal"><td>Total ${fmtBulan(m)}</td><td class="num">${rp(sum(tx.filter(t => bm(t) === m), t => t.nilai))}</td></tr></tbody>`).join('') || '<tbody><tr><td colspan="2" class="empty">Belum ada pengeluaran</td></tr></tbody>'}
+        <tfoot><tr class="total"><td>Total ${S.year}</td><td class="num">${rp(sum(tx, t => t.nilai))}</td></tr></tfoot>
+      </table></div>`;
     }
     bindYear(el, rerender);
     $$('[data-m]', el).forEach(s => s.onclick = () => {
@@ -406,7 +395,7 @@
     const adm = isAdmin();
     const ms = monthsOfYear(S.year);
     const bm = t => t.bulan || t.tanggal.slice(0, 7);
-    const tx = S.d.transaksi.filter(t => t.tipe === 'pengeluaran' && t.mitra_id && !isUnreal(t) && ms.includes(bm(t)));
+    const tx = S.d.transaksi.filter(t => t.tipe === 'pengeluaran' && t.mitra_id && ms.includes(bm(t)));
     const mitra = S.d.mitra.filter(m => m.aktif || tx.some(t => t.mitra_id === m.id));
     const shownMs = ms.filter(m => m <= curYM() || tx.some(t => bm(t) === m));
     const COLS = [
@@ -415,7 +404,7 @@
       ['kasbon', 'Kasbon', t => t.komponen === 'kasbon'],
       ['lain', 'Lembur/THR', t => ['lembur', 'thr', 'lainnya'].includes(t.komponen)],
     ];
-    const potong = (mid, m) => sum(S.d.hutang_mitra.filter(h => h.mitra_id === mid && h.bulan === m && h.lunas && h.transaksi_id && !h.sumber_id), h => h.nominal);
+    const potong = (mid, m) => sum(S.d.hutang_mitra.filter(h => h.mitra_id === mid && h.bulan === m && h.lunas && h.transaksi_id), h => h.nominal);
     el.innerHTML = `
       <div class="toolbar">${yearSelect()}</div>
       ${mitra.map(mt => {
@@ -441,7 +430,7 @@
     const adm = isAdmin(), tx = S.d.transaksi;
     const info = w => {
       const by = f => sum(tx.filter(f), t => t.nilai);
-      return { w, riil: saldo(w.id), kb: kasbonBelum([w.id]), saldo: saldo(w.id) + kasbonBelum([w.id]),
+      return { w, saldo: saldo(w.id),
         masuk: by(t => (t.tipe === 'iuran' || t.tipe === 'pemasukan') && t.dompet_id === w.id),
         keluar: by(t => t.tipe === 'pengeluaran' && t.dompet_id === w.id),
         mIn: by(t => t.tipe === 'mutasi' && t.dompet_tujuan_id === w.id),
@@ -458,8 +447,6 @@
           <div class="mrow"><span>− Uang keluar</span><span>${rp(x.keluar)}</span></div>
           <div class="mrow"><span>+ Mutasi masuk</span><span>${rp(x.mIn)}</span></div>
           <div class="mrow"><span>− Mutasi keluar</span><span>${rp(x.mOut)}</span></div>
-          <div class="mrow strong"><span>Saldo riil</span><span>${rp(x.riil)}</span></div>
-          ${x.kb ? `<div class="mrow"><span>+ Kasbon mitra belum terealisasi</span><span>${rp(x.kb)}</span></div>` : ''}
         </div>
         ${adm ? `<div class="row-actions"><button class="btn small" data-adj="${x.w.id}">Sesuaikan saldo</button><button class="btn small" data-riw="${x.w.id}">Lihat transaksi</button></div>` : ''}
       </div>`;
@@ -469,7 +456,6 @@
         <div class="card"><div class="label">Total kas</div><div class="value">${rp(sum(rek, x => x.saldo) + sum(tun, x => x.saldo))}</div></div>
         <div class="card"><div class="label">Total rekening</div><div class="value">${rp(sum(rek, x => x.saldo))}</div></div>
         <div class="card"><div class="label">Total tunai</div><div class="value">${rp(sum(tun, x => x.saldo))}</div></div>
-        <div class="card"><div class="label">Kasbon mitra belum terealisasi</div><div class="value">${rp(sum(rek, x => x.kb) + sum(tun, x => x.kb))}</div><div class="small muted">sudah termasuk di saldo di atas</div></div>
       </div>
       ${adm ? '<div class="toolbar"><span class="spacer"></span><button class="btn primary" id="newMut">+ Catat mutasi</button></div>' : ''}
       <h3 class="pc-title">Saldo rekening</h3><div class="pc-list">${rek.map(card).join('') || '<div class="empty">Belum ada rekening</div>'}</div>
@@ -480,7 +466,7 @@
     $$('[data-riw]', el).forEach(b => b.onclick = () => { S.fRiw = { dari: '', sampai: '', tipe: '', dompet: b.dataset.riw, kategori: '', q: '', n: 100 }; location.hash = '#riwayat'; });
     $$('[data-adj]', el).forEach(b => b.onclick = () => {
       const w = get('dompet', b.dataset.adj), now = saldo(w.id);
-      openModal('Sesuaikan saldo ' + w.nama, `<form id="adjF"><p class="hint">Saldo riil di aplikasi saat ini <b>${rp(now)}</b> (belum termasuk kasbon mitra belum terealisasi). Isi saldo sebenarnya (mis. dari aplikasi bank atau hitungan uang tunai). Saldo awal akan disesuaikan sehingga saldo di aplikasi sama, tanpa membuat transaksi.</p>
+      openModal('Sesuaikan saldo ' + w.nama, `<form id="adjF"><p class="hint">Saldo di aplikasi saat ini <b>${rp(now)}</b>. Isi saldo sebenarnya (mis. dari aplikasi bank atau hitungan uang tunai). Saldo awal akan disesuaikan sehingga saldo di aplikasi sama, tanpa membuat transaksi.</p>
         <label>Saldo sebenarnya (Rp)<input name="nyata" id="adjNyata" data-money inputmode="decimal" required></label>
         <div class="form-actions"><button type="button" class="btn" id="cancelBtn">Batal</button><button class="btn primary">Simpan</button></div></form>`, body => {
         moneyInputs(body); $('#cancelBtn', body).onclick = closeModal;
@@ -698,7 +684,7 @@
     const tengah = st.tahap === 'tengah';
     const rows = S.d.mitra.filter(m => m.aktif).map(m => {
       const o = ov[m.id] || (ov[m.id] = {});
-      const tx = S.d.transaksi.filter(t => t.tipe === 'pengeluaran' && t.mitra_id === m.id && t.bulan === st.bulan && !isUnreal(t));
+      const tx = S.d.transaksi.filter(t => t.tipe === 'pengeluaran' && t.mitra_id === m.id && t.bulan === st.bulan);
       const kedatangan = m.jenis_gaji === 'kedatangan';
       const tarif = Number(m.gaji_pokok) || 0;
       const cic = S.d.hutang_mitra.filter(h => h.mitra_id === m.id && h.bulan === st.bulan && !h.lunas);
@@ -829,16 +815,12 @@
         txs.push({ id, tipe: 'pengeluaran', tanggal: st.tanggal, nilai: r.amount, dompet_id: r.metode === 'tunai' ? tunaiId : rek.id, dompet_tujuan_id: null,
           kategori_id: kat ? kat.id : null, rumah_id: null, mitra_id: r.m.id, komponen: !r.kedatangan && tengah ? 'gaji_tengah' : 'gaji', bulan: st.bulan,
           keterangan: ket + (pot ? ` (potong cicilan ${rp(pot)})` : '') });
-        if (pot) r.cic.forEach(h => hut.push([h.id, id, h.sumber_id]));
+        if (pot) r.cic.forEach(h => hut.push([h.id, id]));
         if (r.kedatangan) r.chosen.forEach(v => vis.push([v.id, id]));
       });
       const ok = await run(async () => {
         await DB.insert('transaksi', txs);
-        for (const [hid, tid, sid] of hut) {
-          await DB.update('hutang_mitra', hid, { lunas: true, transaksi_id: tid });
-          // Kasbon yang dipotong menjadi pengeluaran gaji (terealisasi) di bulan ini
-          if (sid && get('transaksi', sid)) await DB.update('transaksi', sid, { kategori_id: kat ? kat.id : null, bulan: st.bulan });
-        }
+        for (const [hid, tid] of hut) await DB.update('hutang_mitra', hid, { lunas: true, transaksi_id: tid });
         for (const [vid, tid] of vis) await DB.update('kedatangan_mitra', vid, { transaksi_id: tid });
         await reload('transaksi', 'hutang_mitra', 'kedatangan_mitra');
       }, 'Gaji dicairkan');
@@ -887,12 +869,7 @@
       const t = get('transaksi', b.dataset.del);
       if (!await ask(`Hapus transaksi ${TIPE_LABEL[t.tipe]} ${rp(t.nilai)} tanggal ${fmtTgl(t.tanggal)}?`)) return;
       if (await run(async () => {
-        const kU = S.d.kategori.find(k => /belum terealisasi/i.test(k.nama));
-        for (const h of S.d.hutang_mitra.filter(h => h.transaksi_id === t.id)) {
-          await DB.update('hutang_mitra', h.id, { lunas: false, transaksi_id: null });
-          const src = h.sumber_id && get('transaksi', h.sumber_id);
-          if (src && kU) await DB.update('transaksi', src.id, { kategori_id: kU.id, bulan: src.tanggal.slice(0, 7) });
-        }
+        for (const h of S.d.hutang_mitra.filter(h => h.transaksi_id === t.id)) await DB.update('hutang_mitra', h.id, { lunas: false, transaksi_id: null });
         for (const v of S.d.kedatangan_mitra.filter(v => v.transaksi_id === t.id)) await DB.update('kedatangan_mitra', v.id, { transaksi_id: null });
         await DB.remove('transaksi', t.id); await reload('transaksi', 'iuran_bulan', 'hutang_mitra', 'kedatangan_mitra');
       }, 'Transaksi dihapus')) rerender();
@@ -1463,7 +1440,7 @@
       { foot: [['Total', right(sum(ring, r => r.masuk)), right(sum(ring, r => r.keluar)), right(sum(ring, r => r.selisih)), '']] });
 
     // 2. Rekap pengeluaran per bulan
-    const px = S.d.transaksi.filter(t => t.tipe === 'pengeluaran' && !isUnreal(t) && ms.includes(bm(t)));
+    const px = S.d.transaksi.filter(t => t.tipe === 'pengeluaran' && ms.includes(bm(t)));
     const kats = S.d.kategori.slice(); if (px.some(t => !get('kategori', t.kategori_id))) kats.push({ id: null, nama: 'Tanpa kategori' });
     const body2 = [];
     ms.filter(m => px.some(t => bm(t) === m)).reverse().forEach(m => {
@@ -1476,7 +1453,7 @@
     // 3. Gaji mitra
     const gx = px.filter(t => t.mitra_id);
     const C = [['Tengah bln', t => t.komponen === 'gaji_tengah'], ['Akhir bln', t => t.komponen === 'gaji' || !t.komponen], ['Kasbon', t => t.komponen === 'kasbon'], ['Lembur/THR', t => ['lembur', 'thr', 'lainnya'].includes(t.komponen)]];
-    const pot = (mid, m) => sum(S.d.hutang_mitra.filter(h => h.mitra_id === mid && h.bulan === m && h.lunas && h.transaksi_id && !h.sumber_id), h => h.nominal);
+    const pot = (mid, m) => sum(S.d.hutang_mitra.filter(h => h.mitra_id === mid && h.bulan === m && h.lunas && h.transaksi_id), h => h.nominal);
     const body3 = [];
     S.d.mitra.filter(m => m.aktif || gx.some(t => t.mitra_id === m.id)).forEach(mt => {
       const a = gx.filter(t => t.mitra_id === mt.id);
@@ -1515,7 +1492,7 @@
       ...ringkasanTahun(y).map(r => [fmtBulan(r.ym), r.masuk, r.keluar, r.selisih, r.saldo])]), 'Ringkasan');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Rumah', 'Grup', 'IPL', ...ms.map(fmtBulan), 'Tunggakan (bln)', 'Total tunggakan'],
       ...S.d.rumah.map(r => { const tg = tunggakan(r); return [rumahLabel(r), r.grup || '', r.ipl, ...ms.map(m => S.paid.get(r.id + '|' + m) || 0), tg.bulan.length, tg.total]; })]), 'Rekap Bayar');
-    const pk = S.d.transaksi.filter(t => t.tipe === 'pengeluaran' && !isUnreal(t) && ms.includes(t.bulan || t.tanggal.slice(0, 7)));
+    const pk = S.d.transaksi.filter(t => t.tipe === 'pengeluaran' && ms.includes(t.bulan || t.tanggal.slice(0, 7)));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Kategori', ...ms.map(fmtBulan), 'Total'],
       ...S.d.kategori.map(k => { const v = ms.map(m => sum(pk.filter(t => t.kategori_id === k.id && (t.bulan || t.tanggal.slice(0, 7)) === m), t => t.nilai)); return [k.nama, ...v, sum(v)]; })]), 'Pengeluaran');
     XLSX.writeFile(wb, `Rekap-Keuangan-${y}.xlsx`);

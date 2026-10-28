@@ -278,4 +278,3 @@ label.check.inline { align-self: auto; padding: 0; margin: 0 0 12px; }
   table.stack tfoot tr { justify-content: space-between; }
   table.stack tbody tr:hover td { background: none; }
 }
-tr.unreal td { color: var(--muted); font-style: italic; }
