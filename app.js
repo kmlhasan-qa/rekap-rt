@@ -368,18 +368,25 @@
     if (tx.some(t => !get('kategori', t.kategori_id))) kats.push({ id: null, nama: 'Tanpa kategori' });
     const cell = (kid, m) => tx.filter(t => (get('kategori', t.kategori_id) ? t.kategori_id : null) === kid && (!m || bm(t) === m));
     {
-      const months = ms.filter(m => tx.some(t => bm(t) === m)).reverse();
+      // Filter bulan: default bulan berjalan; "" = semua bulan
+      if (S.pengBulan === undefined || (S.pengBulan && S.pengBulan.slice(0, 4) !== String(S.year))) S.pengBulan = String(S.year) === curYM().slice(0, 4) ? curYM() : '';
+      const sel = S.pengBulan;
+      const months = ms.filter(m => (!sel || m === sel) && tx.some(t => bm(t) === m)).reverse();
+      const shownTx = sel ? tx.filter(t => bm(t) === sel) : tx;
       el.innerHTML = `
-      <div class="toolbar">${yearSelect()}<span class="muted small">Ketuk kategori untuk melihat rincian.</span></div>
+      <div class="toolbar">${yearSelect()}
+        <label>Bulan<select id="fBulan">${opt('', 'Semua bulan', !sel)}${ms.slice().reverse().map(m => opt(m, BULAN[+m.slice(5) - 1], m === sel)).join('')}</select></label>
+        <span class="muted small">Ketuk kategori untuk melihat rincian.</span></div>
       <div class="table-wrap"><table class="sectioned">
         <thead><tr><th>Kategori</th><th class="num">Nilai</th></tr></thead>
         ${months.map(m => `<tbody><tr class="sep"><td colspan="2">${fmtBulan(m)}</td></tr>
           ${kats.map(k => { const v = sum(cell(k.id, m), t => t.nilai); return v ? `<tr class="clickable-row" data-k="${k.id}" data-m="${m}"><td class="wrap">${esc(k.nama)}</td><td class="num">${rp(v)}</td></tr>` : ''; }).join('')}
-          <tr class="subtotal"><td>Total ${fmtBulan(m)}</td><td class="num">${rp(sum(tx.filter(t => bm(t) === m), t => t.nilai))}</td></tr></tbody>`).join('') || '<tbody><tr><td colspan="2" class="empty">Belum ada pengeluaran</td></tr></tbody>'}
-        <tfoot><tr class="total"><td>Total ${S.year}</td><td class="num">${rp(sum(tx, t => t.nilai))}</td></tr></tfoot>
+          <tr class="subtotal"><td>Total ${fmtBulan(m)}</td><td class="num">${rp(sum(tx.filter(t => bm(t) === m), t => t.nilai))}</td></tr></tbody>`).join('') || `<tbody><tr><td colspan="2" class="empty">Belum ada pengeluaran${sel ? ' di ' + fmtBulan(sel) : ''}</td></tr></tbody>`}
+        ${sel ? '' : `<tfoot><tr class="total"><td>Total ${S.year}</td><td class="num">${rp(sum(shownTx, t => t.nilai))}</td></tr></tfoot>`}
       </table></div>`;
     }
     bindYear(el, rerender);
+    if ($('#fBulan', el)) $('#fBulan', el).onchange = e => { S.pengBulan = e.target.value; rerender(); };
     $$('[data-m]', el).forEach(s => s.onclick = () => {
       const kid = s.dataset.k === 'null' ? null : s.dataset.k;
       const list = cell(kid, s.dataset.m);
