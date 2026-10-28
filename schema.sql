@@ -247,7 +247,7 @@ create or replace function public.potongan_gaji()
 returns table(mitra_id uuid, bulan text, nominal numeric)
 language sql stable security definer set search_path = public as $$
   select h.mitra_id, h.bulan::text, sum(h.nominal) from public.hutang_mitra h
-  where public.is_member() and h.mitra_id is not null and (h.sumber_id is not null or (h.lunas and h.transaksi_id is not null))
+  where public.is_member() and h.mitra_id is not null  -- semua cicilan bulan itu dihitung sebagai bagian gaji
   group by h.mitra_id, h.bulan;
 $$;
 create or replace function public.kedatangan_bulan()

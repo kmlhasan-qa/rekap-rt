@@ -411,7 +411,7 @@
   // ---------- Gaji mitra
   // Per mitra per bulan:
   //  gaji     = gaji pokok (bulanan) atau jumlah kedatangan x tarif
-  //  terbayar = gaji tengah/akhir/kasbon yang dibayar + kasbon dibayar dimuka/cicilan yang dipotong
+  //  terbayar = gaji tengah/akhir/kasbon yang dibayar + semua cicilan hutang bulan itu
   //  belum    = gaji - terbayar;  lain = lembur, THR, lainnya;  total = terbayar + lain
   function gajiCalc(mt, m) {
     const isLain = t => ['lembur', 'thr', 'lainnya'].includes(t.komponen);
@@ -470,7 +470,7 @@
     el.innerHTML = `
       <div class="toolbar">${yearSelect()}${bulanSelect}</div>
       ${body}
-      <p class="hint">${adm ? 'Angka dalam Rupiah. Sudah terbayar = gaji yang sudah dibayarkan (termasuk kasbon dan cicilan yang dipotong). Total = gaji yang sudah diterima + lembur & lainnya. Mitra yang sudah resign tidak ditampilkan.' : 'Angka dalam Rupiah. Total = gaji pokok + lembur & lainnya yang sudah diterima.'}</p>
+      <p class="hint">${adm ? 'Angka dalam Rupiah. Sudah terbayar = gaji yang sudah dibayarkan, termasuk kasbon dan cicilan hutang bulan itu (yang akan dipotong saat pencairan). Total = gaji yang sudah diterima + lembur & lainnya. Mitra yang sudah resign tidak ditampilkan.' : 'Angka dalam Rupiah. Total = gaji pokok + lembur & lainnya yang sudah diterima.'}</p>
       ${adm && sel ? '<div class="panel" style="margin-top:18px"><h3>Pencairan gaji ' + fmtBulan(sel) + '</h3><div id="pcrBox"></div></div>' : ''}`;
     bindYear(el, rerender);
     $('#fBulanGaji', el).onchange = e => { S.gajiBulan = e.target.value; rerender(); };
