@@ -292,3 +292,21 @@ body.ro [data-nama], body.ro [data-akt], body.ro #resetDemo { display: none !imp
 td, th { overflow-wrap: anywhere; }
 td.num, th.num { overflow-wrap: normal; white-space: nowrap; }
 
+
+/* Pilihan rumah (combobox yang bisa dicari) */
+.field { display: block; font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+.combo { position: relative; }
+.combo-box { position: relative; margin-top: 4px; }
+.combo-box input { padding-right: 34px; }
+.combo-clear { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); border: 0; background: none; color: var(--muted); font-size: 20px; line-height: 1; width: 28px; height: 28px; cursor: pointer; border-radius: 6px; }
+.combo-clear:hover { background: var(--surface-2); }
+.combo-list { position: absolute; z-index: 30; left: 0; right: 0; top: calc(100% + 4px); max-height: 300px; overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); padding: 4px; color: var(--text); }
+.combo-item { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+.combo-item .ck { font-weight: 700; min-width: 64px; }
+.combo-item .cn { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.combo-item .badge { flex-shrink: 0; }
+.combo-item.act { background: var(--primary-soft); }
+.combo-item.sel .ck::after { content: ' ✓'; color: var(--primary); }
+.combo-more { padding: 10px; font-size: 13px; color: var(--muted); text-align: center; }
+.badge.danger { background: var(--bad-soft); color: var(--bad); }
+@media (max-width: 700px) { .combo-list { max-height: 50vh; } .combo-item { padding: 11px 10px; } }

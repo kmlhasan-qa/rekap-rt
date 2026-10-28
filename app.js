@@ -574,6 +574,50 @@
     showLast();
   }
 
+  // Pilihan rumah yang bisa dicari: ketik kode (1/26, kb1 26) atau nama, pilih dengan klik / panah + Enter
+  function rumahCombo(input, current) {
+    const wrap = input.closest('.combo'), list = $('.combo-list', wrap), clear = $('.combo-clear', wrap);
+    const pool = S.d.rumah.filter(x => x.aktif || x === current);
+    const nk = v => String(v || '').toLowerCase().replace(/^\s*kb\s*/, '').replace(/\s*(no\.?|nomor)\s*/g, '/').replace(/[\s.\-]+/g, '/').replace(/\/+/g, '/');
+    let items = [], act = -1;
+    const info = r => { const tg = tunggakan(r); return tg.bulan.length ? `<span class="badge danger">${tg.bulan.length} bln belum</span>` : '<span class="badge ok">Lunas</span>'; };
+    const exact = () => pool.find(r => rumahLabel(r) === input.value.trim());
+    function draw(showAll) {
+      const q = showAll ? '' : input.value.trim().toLowerCase();
+      const qk = nk(q);
+      items = pool.filter(r => !q || nk(r.kode).startsWith(qk) || nk(r.kode).includes(qk) || (r.nama || '').toLowerCase().includes(q) || rumahLabel(r).toLowerCase().includes(q))
+        .sort((a, b) => { if (!q) return 0; const sc = r => nk(r.kode) === qk ? 2 : nk(r.kode).startsWith(qk) ? 1 : 0; return sc(b) - sc(a); });
+      act = items.length ? 0 : -1;
+      list.innerHTML = items.length ? items.slice(0, 80).map((r, i) => `<div class="combo-item ${i === act ? 'act' : ''} ${current && r.id === current.id ? 'sel' : ''}" role="option" data-i="${i}">
+          <span class="ck">${esc(r.kode)}</span><span class="cn">${esc(r.nama || '')}</span>${info(r)}</div>`).join('')
+        + (items.length > 80 ? `<div class="combo-more">+${items.length - 80} lainnya, ketik lebih spesifik</div>` : '')
+        : '<div class="combo-more">Rumah tidak ditemukan</div>';
+      list.classList.remove('hidden'); input.setAttribute('aria-expanded', 'true');
+    }
+    const hide = () => { list.classList.add('hidden'); input.setAttribute('aria-expanded', 'false'); };
+    const hl = () => $$('.combo-item', list).forEach(el => el.classList.toggle('act', +el.dataset.i === act));
+    function pick(r) {
+      current = r; input.value = r ? rumahLabel(r) : ''; clear.classList.toggle('hidden', !r); hide();
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    input.addEventListener('focus', () => { input.select(); draw(!!exact()); });
+    input.addEventListener('input', () => { clear.classList.toggle('hidden', !input.value); draw(false); });
+    input.addEventListener('keydown', e => {
+      if (list.classList.contains('hidden') && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { draw(!!exact()); e.preventDefault(); return; }
+      if (e.key === 'ArrowDown') { act = Math.min(act + 1, Math.min(items.length, 80) - 1); hl(); e.preventDefault(); scrollAct(); }
+      else if (e.key === 'ArrowUp') { act = Math.max(act - 1, 0); hl(); e.preventDefault(); scrollAct(); }
+      else if (e.key === 'Enter') { if (!list.classList.contains('hidden') && items[act]) { e.preventDefault(); pick(items[act]); } }
+      else if (e.key === 'Escape') hide();
+    });
+    const scrollAct = () => { const el = $(`.combo-item[data-i="${act}"]`, list); if (el) el.scrollIntoView({ block: 'nearest' }); };
+    list.addEventListener('pointerdown', e => { e.preventDefault(); const it = e.target.closest('.combo-item'); if (it) pick(items[+it.dataset.i]); });
+    input.addEventListener('blur', () => setTimeout(() => {
+      hide();
+      if (input.value.trim() && !exact() && items.length === 1) pick(items[0]);
+    }, 120));
+    clear.onclick = () => { pick(null); input.focus(); };
+  }
+
   function trxForm(box, tipe, ex, done) {
     const dompetOpts = (sel, filter) => S.d.dompet.filter(w => (w.aktif || w.id === sel) && (!filter || filter(w)))
       .map(w => opt(w.id, w.jenis === 'rekening' ? `Transfer (${w.nama})` : w.nama, w.id === sel)).join('');
@@ -583,8 +627,10 @@
       <label>Tanggal<input type="date" name="tanggal" required value="${tgl}"></label>`;
     if (tipe === 'iuran') {
       const r = ex ? get('rumah', ex.rumah_id) : null;
-      html += `<label>Rumah<input name="rumah" list="dlRumah" required placeholder="Ketik kode / nama" value="${esc(r ? rumahLabel(r) : '')}" autocomplete="off">
-          <datalist id="dlRumah">${S.d.rumah.filter(x => x.aktif || x === r).map(x => `<option value="${esc(rumahLabel(x))}">`).join('')}</datalist></label>
+      html += `<div class="field combo"><span>Rumah</span>
+          <div class="combo-box"><input name="rumah" required placeholder="Cari kode / nama, mis. 1/26 atau Purnomo" value="${esc(r ? rumahLabel(r) : '')}" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="rumahList" aria-autocomplete="list">
+            <button type="button" class="combo-clear ${r ? '' : 'hidden'}" aria-label="Kosongkan">&times;</button></div>
+          <div class="combo-list hidden" id="rumahList" role="listbox"></div></div>
         <label>Jenis bayar<select name="dompet_id">${dompetOpts(defDompet)}</select></label>
         <label>Jumlah (Rp)<input name="nilai" data-money inputmode="decimal" required value="${ex ? ex.nilai : ''}"></label>
         </div>
@@ -653,6 +699,7 @@
       if (r) { const tg = tunggakan(r); $('#rumahInfo', box).innerHTML = `IPL <b>${rp(r.ipl)}</b>/bulan · Tunggakan: ${tg.bulan.length ? tg.bulan.map(fmtBulan).join(', ') : 'tidak ada'}`; }
     }
     if (tipe === 'iuran') {
+      rumahCombo(form.rumah, ex ? get('rumah', ex.rumah_id) : null);
       let lastRumah = ex ? ex.rumah_id : null;
       form.rumah.addEventListener('change', () => {
         const r = curRumah();
