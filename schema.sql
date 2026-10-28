@@ -12,7 +12,7 @@ create table if not exists public.profiles (
   id          uuid primary key references auth.users on delete cascade,
   email       text,
   nama        text,
-  role        text not null default 'warga' check (role in ('admin','warga')),
+  role        text not null default 'warga' check (role in ('admin','viewer','warga')),
   aktif       boolean not null default true,
   created_at  timestamptz not null default now()
 );
@@ -34,6 +34,12 @@ create trigger on_auth_user_created
 create or replace function public.is_admin()
 returns boolean language sql stable security definer set search_path = public as $$
   select exists (select 1 from public.profiles where id = auth.uid() and role = 'admin' and aktif);
+$$;
+
+-- Admin + admin view-only (role 'viewer'): boleh membaca semua data admin, tidak boleh menulis
+create or replace function public.is_staff()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.profiles where id = auth.uid() and role in ('admin','viewer') and aktif);
 $$;
 
 create or replace function public.is_member()
@@ -201,7 +207,7 @@ alter table public.audit_log       enable row level security;
 -- profiles: user melihat profilnya sendiri; admin melihat & mengubah semua
 drop policy if exists profiles_select on public.profiles;
 create policy profiles_select on public.profiles for select
-  using (id = auth.uid() or public.is_admin());
+  using (id = auth.uid() or public.is_staff());
 drop policy if exists profiles_admin_update on public.profiles;
 create policy profiles_admin_update on public.profiles for update
   using (public.is_admin()) with check (public.is_admin());
@@ -225,11 +231,13 @@ begin
   foreach t in array array['rumah_rekening','hutang_mitra','kedatangan_mitra','catatan'] loop
     execute format('drop policy if exists %I on public.%I', t||'_admin', t);
     execute format('create policy %I on public.%I for all using (public.is_admin()) with check (public.is_admin())', t||'_admin', t);
+    execute format('drop policy if exists %I on public.%I', t||'_staff_read', t);
+    execute format('create policy %I on public.%I for select using (public.is_staff())', t||'_staff_read', t);
   end loop;
 end $$;
 
 drop policy if exists audit_admin_read on public.audit_log;
-create policy audit_admin_read on public.audit_log for select using (public.is_admin());
+create policy audit_admin_read on public.audit_log for select using (public.is_staff());
 
 -- ---------------------------------------------------------------------
 -- Pembaruan untuk database yang dibuat dengan versi skema sebelumnya
@@ -286,3 +294,48 @@ on conflict (nama) do nothing;
 --   update public.profiles set role = 'admin', nama = 'Manal'
 --   where email = 'EMAIL_ANDA@contoh.com';
 -- =====================================================================
+
+-- Pembaruan: role 'viewer' (admin lihat saja)
+alter table public.profiles drop constraint if exists profiles_role_check;
+alter table public.profiles add constraint profiles_role_check check (role in ('admin','viewer','warga'));
+-- Contoh: update public.profiles set role = 'viewer' where email = 'admin_view@sherwood.com';
+
+-- Mutasi bank (hasil upload e-Statement .xlsx): khusus admin, admin view-only bisa membaca
+create table if not exists public.mutasi_periode (
+  id            uuid primary key default gen_random_uuid(),
+  dompet_id     uuid references public.dompet on delete set null,
+  no_rekening   text not null,
+  nama_rekening text,
+  bank          text,
+  periode       text not null,             -- YYYY-MM
+  tgl_awal      date,
+  tgl_akhir     date,
+  saldo_awal    numeric(16,2),
+  total_masuk   numeric(16,2),
+  total_keluar  numeric(16,2),
+  saldo_akhir   numeric(16,2),
+  nama_file     text,
+  uploaded_at   timestamptz not null default now(),
+  unique (no_rekening, periode)
+);
+create table if not exists public.mutasi_bank (
+  id          uuid primary key default gen_random_uuid(),
+  periode_id  uuid not null references public.mutasi_periode on delete cascade,
+  urut        int,
+  tanggal     date not null,
+  waktu       text,
+  keterangan  text,
+  masuk       numeric(16,2) not null default 0,
+  keluar      numeric(16,2) not null default 0,
+  saldo       numeric(16,2)
+);
+create index if not exists mutasi_bank_periode_idx on public.mutasi_bank (periode_id);
+alter table public.mutasi_periode enable row level security;
+alter table public.mutasi_bank    enable row level security;
+do $$ declare t text; begin
+  foreach t in array array['mutasi_periode','mutasi_bank'] loop
+    execute format('drop policy if exists %I on public.%I', t||'_admin', t);
+    execute format('create policy %I on public.%I for all using (public.is_admin()) with check (public.is_admin())', t||'_admin', t);
+    execute format('drop policy if exists %I on public.%I', t||'_staff_read', t);
+    execute format('create policy %I on public.%I for select using (public.is_staff())', t||'_staff_read', t);
+  end loop; end $$;
