@@ -76,11 +76,22 @@
     const res = await Promise.all(DB.TABLES.map(t => DB.list(t)));
     DB.TABLES.forEach((t, i) => S.d[t] = res[i]);
     reindex();
+    await loadAgg();
   }
   async function reload(...tables) {
     const res = await Promise.all(tables.map(t => DB.list(t)));
     tables.forEach((t, i) => S.d[t] = res[i]);
     reindex();
+    if (tables.some(t => ['transaksi', 'hutang_mitra', 'kedatangan_mitra'].includes(t))) await loadAgg();
+  }
+  // Ringkasan potongan gaji & jumlah kedatangan per mitra per bulan (bisa dibaca warga tanpa membuka data hutang)
+  async function loadAgg() {
+    S.agg = { pot: new Map(), kd: new Map() };
+    try {
+      const [pot, kd] = await Promise.all([DB.rpc('potongan_gaji'), DB.rpc('kedatangan_bulan')]);
+      pot.forEach(r => S.agg.pot.set(r.mitra_id + '|' + r.bulan, Number(r.nominal)));
+      kd.forEach(r => S.agg.kd.set(r.mitra_id + '|' + r.bulan, Number(r.jumlah)));
+    } catch (e) { console.warn('agg', e); }
   }
   function reindex() {
     DB.TABLES.forEach(t => S.idx[t] = new Map(S.d[t].map(r => [r.id || r.key || r.rumah_id, r])));
@@ -166,7 +177,6 @@
     { key: 'ipl', title: 'Besaran IPL', render: pgIpl, staff: true },
     { group: 'Admin', admin: true },
     { key: 'input', title: 'Input Transaksi', render: pgInput, admin: true },
-    { key: 'pencairan', title: 'Pencairan Gaji', render: pgPencairan, admin: true },
     { key: 'keuangan', title: 'Rekap Keuangan', render: pgKeuangan, admin: true },
     { key: 'riwayat', title: 'Riwayat Transaksi', render: pgRiwayat, admin: true },
     { key: 'master', title: 'Master Data', render: pgMaster, admin: true },
@@ -200,6 +210,7 @@
   }
   function route() {
     let key = (location.hash.match(/^#\/?(\w+)/) || [])[1] || (isAdmin() ? 'input' : 'dashboard');
+    if (key === 'pencairan') key = 'gaji';
     let page = PAGES.find(p => p.key === key);
     if (!page || page.group || !canSee(page)) { page = PAGES[1]; }
     $$('#nav a, #bottomNav a').forEach(a => a.classList.toggle('active', a.dataset.key === page.key));
@@ -398,69 +409,62 @@
   }
 
   // ---------- Gaji mitra
+  // Per mitra per bulan:
+  //  gaji     = gaji pokok (bulanan) atau jumlah kedatangan x tarif
+  //  terbayar = gaji tengah/akhir/kasbon yang dibayar + kasbon dibayar dimuka/cicilan yang dipotong
+  //  belum    = gaji - terbayar;  lain = lembur, THR, lainnya;  total = terbayar + lain
+  function gajiCalc(mt, m) {
+    const isLain = t => ['lembur', 'thr', 'lainnya'].includes(t.komponen);
+    const agg = S.agg || { pot: new Map(), kd: new Map() };
+    const a = S.d.transaksi.filter(t => t.tipe === 'pengeluaran' && t.mitra_id === mt.id && (t.bulan || t.tanggal.slice(0, 7)) === m);
+    const k = mt.id + '|' + m;
+    const terbayar = sum(a.filter(t => !isLain(t)), t => t.nilai) + (agg.pot.get(k) || 0);
+    const lain = sum(a.filter(isLain), t => t.nilai);
+    let gaji;
+    if (mt.jenis_gaji === 'kedatangan') gaji = agg.kd.has(k) ? agg.kd.get(k) * (Number(mt.gaji_pokok) || 0) : terbayar;
+    else gaji = (a.length || agg.pot.has(k) || m === curYM()) ? Number(mt.gaji_pokok) || 0 : 0;
+    return { gaji, terbayar, belum: Math.max(0, gaji - terbayar), lain, total: terbayar + lain };
+  }
   function pgGaji(el) {
     const adm = isAdmin();
     const ms = monthsOfYear(S.year);
     const bm = t => t.bulan || t.tanggal.slice(0, 7);
     const tx = S.d.transaksi.filter(t => t.tipe === 'pengeluaran' && t.mitra_id && ms.includes(bm(t)));
-    // Hanya mitra aktif, urut nama
     const mitra = S.d.mitra.filter(m => m.aktif).sort((a, b) => a.nama.localeCompare(b.nama, 'id'));
     const shownMs = ms.filter(m => m <= curYM() || tx.some(t => bm(t) === m));
-    const COLS = [
-      ['tengah', 'Tengah bln', t => t.komponen === 'gaji_tengah'],
-      ['akhir', 'Akhir bln', t => t.komponen === 'gaji' || !t.komponen],
-      ['kasbon', 'Kasbon', t => t.komponen === 'kasbon'],
-      ['lain', 'Lembur/THR', t => ['lembur', 'thr', 'lainnya'].includes(t.komponen)],
-    ];
-    const potong = (mid, m) => sum(S.d.hutang_mitra.filter(h => h.mitra_id === mid && h.bulan === m && h.lunas && h.transaksi_id), h => h.nominal);
-    // Gaji pokok bulan itu: bulanan = gaji pokok master (jika ada pembayaran di bulan itu atau bulan berjalan);
-    // per kedatangan = gaji yang dibayarkan bulan itu. Total = gaji pokok + pembayaran lainnya (lembur/THR/lainnya).
-    const isLain = t => ['lembur', 'thr', 'lainnya'].includes(t.komponen);
-    const pokok = (mt, m) => {
-      const a = tx.filter(t => t.mitra_id === mt.id && bm(t) === m);
-      if (mt.jenis_gaji === 'kedatangan') return sum(a.filter(t => !isLain(t)), t => t.nilai);
-      return a.length || m === curYM() ? Number(mt.gaji_pokok) || 0 : 0;
-    };
-    const lain = (mt, m) => sum(tx.filter(t => t.mitra_id === mt.id && bm(t) === m && isLain(t)), t => t.nilai);
-    // Filter bulan: default bulan berjalan; "" = semua bulan
+    const calc = gajiCalc;
+    const head = first => `<tr><th>${first}</th><th class="num">Gaji</th><th class="num">Sudah terbayar</th><th class="num">Belum terbayar</th><th class="num">Lembur & lainnya</th><th class="num">Total</th></tr>`;
+    const cells = c => `<td class="num">${num0(c.gaji)}</td><td class="num">${num0(c.terbayar)}</td><td class="num ${c.belum ? 'neg' : ''}">${num0(c.belum)}</td><td class="num">${num0(c.lain)}</td><td class="num"><b>${num0(c.total)}</b></td>`;
+    const foot = list => `<td class="num">${num0(sum(list, c => c.gaji))}</td><td class="num">${num0(sum(list, c => c.terbayar))}</td><td class="num">${num0(sum(list, c => c.belum))}</td><td class="num">${num0(sum(list, c => c.lain))}</td><td class="num">${num0(sum(list, c => c.total))}</td>`;
     if (S.gajiBulan === undefined || (S.gajiBulan && S.gajiBulan.slice(0, 4) !== String(S.year))) S.gajiBulan = String(S.year) === curYM().slice(0, 4) ? curYM() : '';
     const sel = S.gajiBulan;
     const bulanSelect = `<label>Bulan<select id="fBulanGaji">${opt('', 'Semua bulan', !sel)}${shownMs.slice().reverse().map(m => opt(m, BULAN[+m.slice(5) - 1], m === sel)).join('')}</select></label>`;
     let body;
     if (sel) {
-      // Tampilan satu bulan: satu baris per mitra
-      const a = tx.filter(t => bm(t) === sel);
-      const cols = COLS.filter(c => c[0] === 'akhir' || a.some(c[2]));
-      const showPot = adm && mitra.some(mt => potong(mt.id, sel));
-      const rows = mitra.map(mt => ({ mt, gp: pokok(mt, sel), v: cols.map(c => sum(a.filter(t => t.mitra_id === mt.id && c[2](t)), t => t.nilai)), p: potong(mt.id, sel), tot: pokok(mt, sel) + lain(mt, sel) }));
+      const rows = mitra.map(mt => ({ mt, c: calc(mt, sel) }));
       body = `<div class="table-wrap"><table class="sectioned compact">
-        <thead><tr class="sep"><td colspan="${cols.length + 3 + (showPot ? 1 : 0)}">${fmtBulan(sel)}</td></tr>
-          <tr><th>Mitra</th><th class="num">Gaji pokok</th>${cols.map(c => `<th class="num">${c[1]}</th>`).join('')}<th class="num">Total</th>${showPot ? '<th class="num">Cicilan</th>' : ''}</tr></thead>
-        <tbody>${rows.map(r => `<tr><td>${esc(r.mt.nama)}<div class="muted small">${esc(r.mt.posisi || '')}</div></td><td class="num">${num0(r.gp)}</td>${r.v.map(x => `<td class="num">${num0(x)}</td>`).join('')}<td class="num"><b>${num0(r.tot)}</b></td>${showPot ? `<td class="num">${num0(r.p)}</td>` : ''}</tr>`).join('') || `<tr><td colspan="6" class="empty">Belum ada mitra aktif</td></tr>`}</tbody>
-        <tfoot><tr class="subtotal"><td>Total</td><td class="num">${num0(sum(rows, r => r.gp))}</td>${cols.map((c, i) => `<td class="num">${num0(sum(rows, r => r.v[i]))}</td>`).join('')}<td class="num">${num0(sum(rows, r => r.tot))}</td>${showPot ? `<td class="num">${num0(sum(rows, r => r.p))}</td>` : ''}</tr></tfoot>
+        <thead><tr class="sep"><td colspan="6">${fmtBulan(sel)}</td></tr>${head('Mitra')}</thead>
+        <tbody>${rows.map(r => `<tr><td>${esc(r.mt.nama)}<div class="muted small">${esc(r.mt.posisi || '')}${r.mt.jenis_gaji === 'kedatangan' ? ' · per kedatangan' : ''}</div></td>${cells(r.c)}</tr>`).join('') || '<tr><td colspan="6" class="empty">Belum ada mitra aktif</td></tr>'}</tbody>
+        <tfoot><tr class="subtotal"><td>Total</td>${foot(rows.map(r => r.c))}</tr></tfoot>
       </table></div>`;
     } else {
       body = mitra.map(mt => {
-        const a = tx.filter(t => t.mitra_id === mt.id);
-        const cols = COLS.filter(c => c[0] === 'akhir' || a.some(c[2]));
-        const showPot = adm && ms.some(m => potong(mt.id, m));
-        const val = (m, c) => sum(a.filter(t => (!m || bm(t) === m) && c[2](t)), t => t.nilai);
-        const n = cols.length + 3 + (showPot ? 1 : 0);
+        const list = shownMs.map(m => ({ m, c: calc(mt, m) }));
         return `<div class="table-wrap mitra-block"><table class="sectioned compact">
-          <thead><tr class="sep"><td colspan="${n}">${esc(mt.nama)} <span class="sep-sub">${esc(mt.posisi || '')}${adm ? ' · ' + gajiLabel(mt) : (mt.jenis_gaji === 'kedatangan' ? ' · per kedatangan' : '')}</span></td></tr>
-            <tr><th>Bulan</th><th class="num">Gaji pokok</th>${cols.map(c => `<th class="num">${c[1]}</th>`).join('')}<th class="num">Total</th>${showPot ? '<th class="num">Cicilan</th>' : ''}</tr></thead>
-          <tbody>${shownMs.map(m => { const v = cols.map(c => val(m, c));
-            return `<tr><td>${BLN[+m.slice(5) - 1]}</td><td class="num">${num0(pokok(mt, m))}</td>${v.map(x => `<td class="num">${num0(x)}</td>`).join('')}<td class="num"><b>${num0(pokok(mt, m) + lain(mt, m))}</b></td>${showPot ? `<td class="num">${num0(potong(mt.id, m))}</td>` : ''}</tr>`; }).join('')}</tbody>
-          <tfoot><tr class="subtotal"><td>Total</td><td class="num">${num0(sum(shownMs, m => pokok(mt, m)))}</td>${cols.map(c => `<td class="num">${num0(val(null, c))}</td>`).join('')}<td class="num">${num0(sum(shownMs, m => pokok(mt, m) + lain(mt, m)))}</td>${showPot ? `<td class="num">${num0(sum(ms, m => potong(mt.id, m)))}</td>` : ''}</tr></tfoot>
+          <thead><tr class="sep"><td colspan="6">${esc(mt.nama)} <span class="sep-sub">${esc(mt.posisi || '')}${adm ? ' · ' + gajiLabel(mt) : (mt.jenis_gaji === 'kedatangan' ? ' · per kedatangan' : '')}</span></td></tr>${head('Bulan')}</thead>
+          <tbody>${list.map(x => `<tr><td>${BLN[+x.m.slice(5) - 1]}</td>${cells(x.c)}</tr>`).join('')}</tbody>
+          <tfoot><tr class="subtotal"><td>Total</td>${foot(list.map(x => x.c))}</tr></tfoot>
         </table></div>`;
       }).join('') || '<div class="empty">Belum ada mitra aktif</div>';
     }
     el.innerHTML = `
       <div class="toolbar">${yearSelect()}${bulanSelect}</div>
       ${body}
-      <p class="hint">Angka dalam Rupiah. Total = gaji pokok + pembayaran lainnya (lembur/THR). Gaji pokok mitra per kedatangan = gaji yang dibayarkan bulan itu. Mitra yang sudah resign tidak ditampilkan.</p>`;
+      <p class="hint">Angka dalam Rupiah. Sudah terbayar = gaji yang sudah dibayarkan (termasuk kasbon dan cicilan yang dipotong). Total = gaji yang sudah diterima + lembur & lainnya. Mitra yang sudah resign tidak ditampilkan.</p>
+      ${adm && sel ? '<div class="panel" style="margin-top:18px"><h3>Pencairan gaji ' + fmtBulan(sel) + '</h3><div id="pcrBox"></div></div>' : ''}`;
     bindYear(el, rerender);
     $('#fBulanGaji', el).onchange = e => { S.gajiBulan = e.target.value; rerender(); };
+    if (adm && sel) pgPencairan($('#pcrBox', el), sel);
   }
 
   // ---------- Rekap keuangan (saldo per rekening & tunai)
@@ -710,10 +714,11 @@
   }
 
   // ---------- Pencairan gaji mitra
-  function pgPencairan(el) {
+  function pgPencairan(el, forcedBulan) {
     const rekList = S.d.dompet.filter(w => w.jenis === 'rekening' && w.aktif);
     const tunaiList = S.d.dompet.filter(w => w.jenis === 'tunai' && w.aktif);
     const st = S.pcr || (S.pcr = { bulan: curYM(), tahap: new Date().getDate() <= 20 ? 'tengah' : 'akhir', tanggal: todayISO(), metode: 'transfer', tunaiId: (tunaiList[0] || {}).id, ov: {} });
+    if (forcedBulan) st.bulan = forcedBulan;
     if (!st.rekId || !rekList.some(w => w.id === st.rekId)) st.rekId = (rekList.find(w => /mandiri/i.test(w.nama)) || rekList[0] || {}).id;
     const rek = get('dompet', st.rekId);
     const key = st.bulan + '|' + st.tahap;
@@ -799,7 +804,7 @@
     const bulananRows = rows.filter(r => !r.kedatangan), kdRows = rows.filter(r => r.kedatangan);
     el.innerHTML = `
       <div class="toolbar">
-        <label>Bulan gaji<input type="month" id="pBulan" value="${st.bulan}"></label>
+        ${forcedBulan ? '' : `<label>Bulan gaji<input type="month" id="pBulan" value="${st.bulan}"></label>`}
         <label>Tahap (gaji bulanan)<select id="pTahap">${opt('tengah', 'Tengah bulan', tengah)}${opt('akhir', 'Akhir bulan / sekali bayar', !tengah)}</select></label>
         <label>Tanggal bayar<input type="date" id="pTgl" value="${st.tanggal}"></label>
         <label>Metode (semua)<select id="pMetode">${opt('transfer', 'Transfer', st.metode === 'transfer')}${opt('tunai', 'Tunai', st.metode === 'tunai')}</select></label>
@@ -816,7 +821,7 @@
       <div class="pc-bar"><div><div class="muted small">${fmtBulan(st.bulan)} · ${go.length} mitra</div><b class="pc-total">${rp(sum(go, r => r.amount))}</b></div>
         <button class="btn primary" id="doCair" ${go.length ? '' : 'disabled'}>Cairkan gaji</button></div>`;
     moneyInputs(el);
-    $('#pBulan', el).onchange = e => { if (e.target.value) { st.bulan = e.target.value; rerender(); } };
+    if ($('#pBulan', el)) $('#pBulan', el).onchange = e => { if (e.target.value) { st.bulan = e.target.value; rerender(); } };
     $('#pTahap', el).onchange = e => { st.tahap = e.target.value; rerender(); };
     $('#pTgl', el).onchange = e => { st.tanggal = e.target.value || todayISO(); };
     $('#pMetode', el).onchange = e => { st.metode = e.target.value; Object.values(ov).forEach(o => delete o.metode); rerender(); };
@@ -1489,21 +1494,14 @@
     section(`Rekap Pengeluaran ${y}`, ['Kategori', 'Nilai (Rp)'], body2, { foot: [['Total ' + y, right(sum(px, t => t.nilai))]], tableWidth: 150 });
 
     // 3. Gaji mitra
-    const gx = px.filter(t => t.mitra_id);
-    const C = [['Tengah bln', t => t.komponen === 'gaji_tengah'], ['Akhir bln', t => t.komponen === 'gaji' || !t.komponen], ['Kasbon', t => t.komponen === 'kasbon'], ['Lembur/THR', t => ['lembur', 'thr', 'lainnya'].includes(t.komponen)]];
-    const pot = (mid, m) => sum(S.d.hutang_mitra.filter(h => h.mitra_id === mid && h.bulan === m && h.lunas && h.transaksi_id), h => h.nominal);
     const body3 = [];
     S.d.mitra.filter(m => m.aktif).sort((a, b) => a.nama.localeCompare(b.nama, 'id')).forEach(mt => {
-      const a = gx.filter(t => t.mitra_id === mt.id);
-      body3.push(sep(`${mt.nama} - ${mt.posisi || ''} (${gajiLabel(mt)})`, 7));
-      ms.filter(m => m <= curYM() || a.some(t => bm(t) === m)).forEach(m => {
-        const v = C.map(c => sum(a.filter(t => bm(t) === m && c[1](t)), t => t.nilai));
-        body3.push([BULAN[+m.slice(5) - 1], ...v.map(right), right(sum(v)), right(pot(mt.id, m))]);
-      });
-      const tv = C.map(c => sum(a.filter(c[1]), t => t.nilai));
-      body3.push([{ content: 'Total', styles: { fontStyle: 'bold' } }, ...[...tv, sum(tv), sum(ms, m => pot(mt.id, m))].map(n => ({ content: R(n), styles: { halign: 'right', fontStyle: 'bold' } }))]);
+      body3.push(sep(`${mt.nama} - ${mt.posisi || ''} (${gajiLabel(mt)})`, 6));
+      const list = ms.filter(m => m <= curYM()).map(m => ({ m, c: gajiCalc(mt, m) }));
+      list.forEach(x => body3.push([BULAN[+x.m.slice(5) - 1], right(x.c.gaji), right(x.c.terbayar), right(x.c.belum), right(x.c.lain), right(x.c.total)]));
+      body3.push([{ content: 'Total', styles: { fontStyle: 'bold' } }, ...['gaji', 'terbayar', 'belum', 'lain', 'total'].map(f => ({ content: R(sum(list, x => x.c[f])), styles: { halign: 'right', fontStyle: 'bold' } }))]);
     });
-    section(`Gaji Mitra ${y}`, ['Bulan', 'Tengah bln', 'Akhir bln', 'Kasbon', 'Lembur/THR', 'Total dibayar', 'Potong cicilan'], body3);
+    section(`Gaji Mitra ${y}`, ['Bulan', 'Gaji', 'Sudah terbayar', 'Belum terbayar', 'Lembur & lainnya', 'Total'], body3);
 
     // 4. Rekap bayar warga
     const sym = { paid: 'L', partial: 'S', unpaid: 'B', future: '' };

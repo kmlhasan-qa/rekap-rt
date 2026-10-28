@@ -242,6 +242,23 @@ alter table public.transaksi drop constraint if exists transaksi_komponen_check;
 alter table public.transaksi add constraint transaksi_komponen_check
   check (komponen in ('gaji_tengah','gaji','kasbon','lembur','thr','lainnya'));
 
+-- Ringkasan untuk laporan Gaji Mitra (bisa dibaca warga tanpa membuka data hutang/kedatangan)
+create or replace function public.potongan_gaji()
+returns table(mitra_id uuid, bulan text, nominal numeric)
+language sql stable security definer set search_path = public as $$
+  select h.mitra_id, h.bulan::text, sum(h.nominal) from public.hutang_mitra h
+  where public.is_member() and h.mitra_id is not null and (h.sumber_id is not null or (h.lunas and h.transaksi_id is not null))
+  group by h.mitra_id, h.bulan;
+$$;
+create or replace function public.kedatangan_bulan()
+returns table(mitra_id uuid, bulan text, jumlah int)
+language sql stable security definer set search_path = public as $$
+  select k.mitra_id, k.bulan::text, count(*)::int from public.kedatangan_mitra k
+  where public.is_member() group by k.mitra_id, k.bulan;
+$$;
+grant execute on function public.potongan_gaji() to authenticated;
+grant execute on function public.kedatangan_bulan() to authenticated;
+
 -- ---------------------------------------------------------------------
 -- Data awal
 -- ---------------------------------------------------------------------
