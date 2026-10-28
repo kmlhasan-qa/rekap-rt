@@ -450,8 +450,13 @@
         $('#adjF', body).onsubmit = async e => {
           e.preventDefault();
           const nyata = parseRp($('#adjNyata', body).value);
-          const awal = Math.round((w.saldo_awal + nyata - now) * 100) / 100;
-          if (await run(async () => { await DB.update('dompet', w.id, { saldo_awal: awal }); await reload('dompet'); }, 'Saldo disesuaikan')) { closeModal(); rerender(); }
+          // Muat ulang data terbaru dulu agar perhitungan tidak memakai data lama di tab ini
+          if (await run(async () => {
+            await reload('dompet', 'transaksi');
+            const w2 = get('dompet', w.id), now2 = saldo(w.id);
+            const awal = Math.round((w2.saldo_awal + nyata - now2) * 100) / 100;
+            await DB.update('dompet', w.id, { saldo_awal: awal }); await reload('dompet');
+          }, 'Saldo disesuaikan')) { closeModal(); rerender(); }
         };
       });
     });
