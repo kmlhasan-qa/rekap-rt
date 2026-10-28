@@ -272,6 +272,8 @@
     const isNowY = y === new Date().getFullYear();
     const kasAkhir = isNowY || !shown.length ? totalKas() : shown[shown.length - 1].saldo;
     const rpx = v => v == null ? '—' : rp(v);
+    // Pemasukan, pengeluaran, selisih selalu dengan 2 angka desimal
+    const rp2 = n => (n < 0 ? '-' : '') + 'Rp' + Math.abs(Math.round((Number(n) || 0) * 100) / 100).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const rek = sum(S.d.dompet.filter(w => w.jenis === 'rekening'), w => saldo(w.id));
     const tunai = sum(S.d.dompet.filter(w => w.jenis === 'tunai'), w => saldo(w.id));
     const isNow = y === new Date().getFullYear(), adm = isAdmin();
@@ -285,17 +287,17 @@
       </div>
       <div class="panel"><h3>Pemasukan vs pengeluaran ${y}</h3><div class="chart-box"><canvas id="chart"></canvas></div></div>
       <div class="mlist">${shown.slice().reverse().map(r => `<div class="mitem">
-          <div class="mhead"><b>${fmtBulan(r.ym)}</b><span class="${r.selisih < 0 ? 'neg' : 'pos'}">${r.selisih > 0 ? '+' : ''}${rp(r.selisih)}</span></div>
-          <div class="mrow"><span>Pemasukan</span><span>${rp(r.masuk)}</span></div>
-          <div class="mrow"><span>Pengeluaran</span><span>${rp(r.keluar)}</span></div>
+          <div class="mhead"><b>${fmtBulan(r.ym)}</b><span class="${r.selisih < 0 ? 'neg' : 'pos'}">${r.selisih > 0 ? '+' : ''}${rp2(r.selisih)}</span></div>
+          <div class="mrow"><span>Pemasukan</span><span>${rp2(r.masuk)}</span></div>
+          <div class="mrow"><span>Pengeluaran</span><span>${rp2(r.keluar)}</span></div>
           ${r.saldo == null ? '' : `<div class="mrow strong"><span>Saldo akhir</span><span>${rp(r.saldo)}</span></div>`}
           </div>`).join('') || '<div class="empty">Belum ada data</div>'}</div>
       <div class="table-wrap desk-only"><table>
         <thead><tr><th>Bulan</th><th class="num">Pemasukan</th><th class="num">Pengeluaran</th><th class="num">Selisih</th><th class="num">Saldo akhir</th></tr></thead>
-        <tbody>${shown.slice().reverse().map(r => `<tr><td>${fmtBulan(r.ym)}</td><td class="num">${rp(r.masuk)}</td>
-          <td class="num">${rp(r.keluar)}</td><td class="num ${r.selisih < 0 ? 'neg' : 'pos'}">${rp(r.selisih)}</td><td class="num">${rpx(r.saldo)}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">Belum ada data</td></tr>'}</tbody>
-        <tfoot><tr class="total"><td>Total</td><td class="num">${rp(sum(shown, r => r.masuk))}</td>
-          <td class="num">${rp(sum(shown, r => r.keluar))}</td><td class="num">${rp(sum(shown, r => r.selisih))}</td><td class="num"></td></tr></tfoot>
+        <tbody>${shown.slice().reverse().map(r => `<tr><td>${fmtBulan(r.ym)}</td><td class="num">${rp2(r.masuk)}</td>
+          <td class="num">${rp2(r.keluar)}</td><td class="num ${r.selisih < 0 ? 'neg' : 'pos'}">${rp2(r.selisih)}</td><td class="num">${rpx(r.saldo)}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">Belum ada data</td></tr>'}</tbody>
+        <tfoot><tr class="total"><td>Total</td><td class="num">${rp2(sum(shown, r => r.masuk))}</td>
+          <td class="num">${rp2(sum(shown, r => r.keluar))}</td><td class="num">${rp2(sum(shown, r => r.selisih))}</td><td class="num"></td></tr></tfoot>
       </table></div>
       ${shown.some(r => r.future) ? `<p class="hint" style="margin-top:8px">Tahun ${y} belum berjalan. Pemasukan = iuran yang sudah dibayar dimuka untuk bulan tersebut; pengeluaran = yang dibebankan ke bulan tersebut. Cicilan hutang mitra yang akan dipotong: ${shown.filter(r => r.hutang).map(r => `${BLN[+r.ym.slice(5) - 1]} ${rp(r.hutang)}`).join(', ') || 'tidak ada'}. Hanya terlihat oleh admin.</p>` : ''}
       ${shown.some(r => r.sheet) ? `<p class="hint" style="margin-top:8px">Angka s.d. ${fmtBulan(ringkasanSheet().cutoff)} diambil dari Ringkasan Google Sheet lama.</p>` : ''}
