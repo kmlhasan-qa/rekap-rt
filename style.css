@@ -310,3 +310,4 @@ td.num, th.num { overflow-wrap: normal; white-space: nowrap; }
 .combo-more { padding: 10px; font-size: 13px; color: var(--muted); text-align: center; }
 .badge.danger { background: var(--bad-soft); color: var(--bad); }
 @media (max-width: 700px) { .combo-list { max-height: 50vh; } .combo-item { padding: 11px 10px; } }
+.combo-list { right: auto; width: max(100%, min(380px, calc(100vw - 32px))); }
