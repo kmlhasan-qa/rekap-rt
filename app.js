@@ -1544,8 +1544,8 @@
 
   function pgImpor(el) {
     el.innerHTML = `
-      <div class="panel"><h3>Ekspor laporan</h3><p class="hint">Excel berisi transaksi, ringkasan bulanan, rekap bayar warga, dan rekap pengeluaran. PDF berisi laporan siap cetak: ringkasan, rekap pengeluaran per bulan, gaji mitra, dan rekap bayar warga.</p>
-        <div class="toolbar">${yearSelect()}<button class="btn primary" id="expBtn">Unduh Excel</button><button class="btn primary" id="pdfBtn">Unduh PDF</button></div>${framed ? '<p class="hint">Unduhan file tidak bisa berjalan di halaman preview ini. Akan berfungsi setelah aplikasi dipasang di GitHub Pages.</p>' : ''}</div>
+      <div class="panel"><h3>Ekspor laporan</h3><p class="hint">Laporan PDF siap cetak: ringkasan bulanan, rekap bayar warga, rekap pengeluaran 3 bulan terakhir, dan gaji mitra bulan terakhir.</p>
+        <div class="toolbar">${yearSelect()}<button class="btn primary" id="pdfBtn">Unduh PDF</button></div>${framed ? '<p class="hint">Unduhan file tidak bisa berjalan di halaman preview ini. Akan berfungsi setelah aplikasi dipasang di GitHub Pages.</p>' : ''}</div>
       <div class="panel rw"><h3>Migrasi dari Google Sheet lama</h3>
         <p class="hint">Mengambil langsung dari Google Sheet (tab Data, Besaran IPL, Rekap Bayar Warga, Gaji Mitra, Hutang Mitra, Note, Ringkasan, Rekap Tunai). Browser ini harus login ke akun Google yang punya akses ke sheet. Jalankan sekali saja.</p>
         <div class="toolbar"><label style="flex:1;min-width:240px">Link Google Sheet<input id="migUrl" placeholder="https://docs.google.com/spreadsheets/d/..."></label><button class="btn primary" id="migCek">Periksa data</button></div>
@@ -1555,7 +1555,6 @@
         <input type="file" id="csvFile" accept=".csv,text/csv"><div id="impPrev" style="margin-top:12px"></div></div>
       ${DB.demo ? '<div class="panel"><h3>Mode demo</h3><p class="hint">Kembalikan data contoh ke kondisi awal.</p><button class="btn danger" id="resetDemo">Reset data demo</button></div>' : ''}`;
     bindYear(el, rerender);
-    $('#expBtn', el).onclick = exportExcel;
     $('#pdfBtn', el).onclick = exportPdf;
     if ($('#resetDemo', el)) $('#resetDemo', el).onclick = async () => { if (await ask('Reset semua data demo?')) { DB.resetDemo(); await loadAll(); toast('Data demo direset'); rerender(); } };
     $('#migCek', el).onclick = async () => {
@@ -1630,6 +1629,8 @@
     const section = (title, head, body, opts = {}) => {
       if (yPos > 170) { doc.addPage(); yPos = 14; }
       doc.setFontSize(12); doc.text(title, 14, yPos);
+      const sub = opts.sub; delete opts.sub;
+      if (sub) { doc.setFontSize(9.5); doc.setTextColor(60); doc.text(sub, 14, yPos + 5); doc.setTextColor(0); yPos += 5; }
       doc.autoTable(Object.assign({ startY: yPos + 3, head: [head], body, theme: 'grid', margin: { left: 14, right: 14 },
         styles: { fontSize: 8, cellPadding: 1.6 }, headStyles: { fillColor: green }, showFoot: 'lastPage', footStyles: { fillColor: soft, textColor: 20, fontStyle: 'bold' } }, opts));
       yPos = doc.lastAutoTable.finalY + 10;
@@ -1640,39 +1641,43 @@
 
     // 1. Ringkasan
     const ring = ringkasanTahun(y);
-    section(`Ringkasan ${y}${kasAwalTahun(y) != null ? ` (kas awal Rp${R(kasAwalTahun(y))})` : ''}`, ['Bulan', 'Pemasukan', 'Pengeluaran', 'Selisih', 'Saldo akhir'],
+    const kasNow = y < +curYM().slice(0, 4) ? totalKas((y + 1) + '-01-01') : totalKas();
+    section(`Ringkasan bulan berjalan ${y}`, ['Bulan', 'Pemasukan', 'Pengeluaran', 'Selisih', 'Saldo akhir'],
       ring.map(r => [fmtBulan(r.ym), right(r.masuk), right(r.keluar), right(r.selisih), right(r.saldo)]),
-      { foot: [['Total', right(sum(ring, r => r.masuk)), right(sum(ring, r => r.keluar)), right(sum(ring, r => r.selisih)), '']] });
+      { sub: `${y < +curYM().slice(0, 4) ? 'Kas akhir ' + y : 'Kas berjalan (saat ini)'} ${rp(kasNow)}`, foot: [['Total', right(sum(ring, r => r.masuk)), right(sum(ring, r => r.keluar)), right(sum(ring, r => r.selisih)), '']] });
 
-    // 2. Rekap pengeluaran per bulan
-    const px = S.d.transaksi.filter(t => t.tipe === 'pengeluaran' && ms.includes(bm(t)));
+    // 2. Rekap bayar warga (lunas = hijau, sebagian = kuning, belum = abu-abu)
+    const sym = { paid: 'L', partial: 'S', unpaid: 'B', future: '' };
+    const sty = { paid: { fillColor: [46, 139, 87], textColor: 255 }, partial: { fillColor: [244, 208, 63], textColor: 0 }, unpaid: { fillColor: [200, 200, 200], textColor: 0 }, future: {} };
+    const body4 = S.d.rumah.filter(r => r.aktif || ms.some(m => S.paid.get(r.id + '|' + m))).map(r =>
+      [rumahLabel(r), ...ms.map(m => { const s = statusBulan(r, m).s; return { content: sym[s], styles: Object.assign({ halign: 'center', fontStyle: 'bold' }, sty[s]) }; })]);
+    section(`Rekap Bayar Warga ${y}  (L = lunas, S = sebagian, B = belum)`, ['Rumah', ...BLN], body4,
+      { styles: { fontSize: 7.5, cellPadding: 1.2, lineColor: 255, lineWidth: 0.3 }, columnStyles: { 0: { cellWidth: 70 } } });
+
+    // 3. Rekap pengeluaran 3 bulan terakhir
+    const lastM = y < +curYM().slice(0, 4) ? ymOf(y, 12) : curYM();
+    const ms3 = [0, 1, 2].map(i => ymAdd(lastM, -i)).filter(m => m.startsWith(String(y)));
+    const px = S.d.transaksi.filter(t => t.tipe === 'pengeluaran' && ms3.includes(bm(t)));
     const kats = S.d.kategori.slice(); if (px.some(t => !get('kategori', t.kategori_id))) kats.push({ id: null, nama: 'Tanpa kategori' });
     const body2 = [];
-    ms.filter(m => px.some(t => bm(t) === m)).reverse().forEach(m => {
+    ms3.filter(m => px.some(t => bm(t) === m)).forEach(m => {
       body2.push(sep(fmtBulan(m), 2));
       kats.forEach(k => { const v = sum(px.filter(t => bm(t) === m && (get('kategori', t.kategori_id) ? t.kategori_id : null) === k.id), t => t.nilai); if (v) body2.push([k.nama, right(v)]); });
       body2.push([{ content: 'Total ' + fmtBulan(m), styles: { fontStyle: 'bold' } }, { content: R(sum(px.filter(t => bm(t) === m), t => t.nilai)), styles: { halign: 'right', fontStyle: 'bold' } }]);
     });
-    section(`Rekap Pengeluaran ${y}`, ['Kategori', 'Nilai (Rp)'], body2, { foot: [['Total ' + y, right(sum(px, t => t.nilai))]], tableWidth: 150 });
+    if (yPos > 120) { doc.addPage(); yPos = 14; }
+    section(`Rekap Pengeluaran 3 bulan terakhir (${ms3.length ? fmtBulan(ms3[ms3.length - 1]) + ' - ' + fmtBulan(ms3[0]) : '-'})`, ['Kategori', 'Nilai (Rp)'], body2,
+      { foot: [['Total 3 bulan', right(sum(px, t => t.nilai))]], tableWidth: 150 });
 
-    // 3. Gaji mitra
-    const body3 = [];
-    S.d.mitra.filter(m => m.aktif).sort((a, b) => a.nama.localeCompare(b.nama, 'id')).forEach(mt => {
-      body3.push(sep(`${mt.nama} - ${mt.posisi || ''} (${gajiLabel(mt)})`, 6));
-      const list = ms.filter(m => m <= curYM()).map(m => ({ m, c: gajiCalc(mt, m) }));
-      list.forEach(x => body3.push([BULAN[+x.m.slice(5) - 1], right(x.c.gaji), right(x.c.terbayar), right(x.c.belum), right(x.c.lain), right(x.c.total)]));
-      body3.push([{ content: 'Total', styles: { fontStyle: 'bold' } }, ...['gaji', 'terbayar', 'belum', 'lain', 'total'].map(f => ({ content: R(sum(list, x => x.c[f])), styles: { halign: 'right', fontStyle: 'bold' } }))]);
-    });
-    section(`Gaji Mitra ${y}`, ['Bulan', 'Gaji', 'Sudah terbayar', 'Belum terbayar', 'Lembur & lainnya', 'Total'], body3);
-
-    // 4. Rekap bayar warga
-    const sym = { paid: 'L', partial: 'S', unpaid: 'B', future: '' };
-    const body4 = S.d.rumah.filter(r => r.aktif || ms.some(m => S.paid.get(r.id + '|' + m))).map(r => {
-      const tg = tunggakan(r);
-      return [rumahLabel(r), right(r.ipl), ...ms.map(m => { const s = statusBulan(r, m).s; return { content: sym[s], styles: { halign: 'center', textColor: s === 'paid' ? [46, 139, 87] : s === 'unpaid' ? [192, 57, 43] : [183, 121, 31] } }; }), right(tg.total)];
-    });
-    if (yPos > 60) { doc.addPage(); yPos = 14; }
-    section(`Rekap Bayar Warga ${y}  (L = lunas, S = sebagian, B = belum)`, ['Rumah', 'IPL', ...BLN, 'Tunggakan'], body4, { styles: { fontSize: 7.5, cellPadding: 1.2 } });
+    // 4. Gaji mitra bulan terakhir
+    const posRank = p => { const i = ['satpam', 'taman'].findIndex(x => String(p || '').toLowerCase().includes(x)); return i < 0 ? 9 : i; };
+    const mitraG = S.d.mitra.filter(m => m.aktif && !(m.tgl_resign && m.tgl_resign.slice(0, 7) < lastM))
+      .sort((a, b) => posRank(a.posisi) - posRank(b.posisi) || String(a.posisi || '').localeCompare(String(b.posisi || ''), 'id') || a.nama.localeCompare(b.nama, 'id'));
+    const g = mitraG.map(mt => ({ mt, c: gajiCalc(mt, lastM) }));
+    if (yPos > 150) { doc.addPage(); yPos = 14; }
+    section(`Gaji Mitra ${fmtBulan(lastM)}`, ['Mitra', 'Posisi', 'Gaji', 'Sudah terbayar', 'Belum terbayar', 'Lembur & lainnya', 'Total'],
+      g.map(x => [x.mt.nama, x.mt.posisi || '', right(x.c.gaji), right(x.c.terbayar), right(x.c.belum), right(x.c.lain), right(x.c.total)]),
+      { foot: [['Total', '', ...['gaji', 'terbayar', 'belum', 'lain', 'total'].map(f => right(sum(g, x => x.c[f])))]] });
 
     const pages = doc.internal.getNumberOfPages();
     for (let i = 1; i <= pages; i++) { doc.setPage(i); doc.setFontSize(8); doc.setTextColor(120); doc.text(`${nama} - ${y} - halaman ${i}/${pages}`, 14, 203); }
