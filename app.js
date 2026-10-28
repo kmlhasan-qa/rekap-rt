@@ -1652,7 +1652,9 @@
     const body4 = S.d.rumah.filter(r => r.aktif || ms.some(m => S.paid.get(r.id + '|' + m))).map(r =>
       [rumahLabel(r), ...ms.map(m => { const s = statusBulan(r, m).s; return { content: sym[s], styles: Object.assign({ halign: 'center', fontStyle: 'bold' }, sty[s]) }; })]);
     section(`Rekap Bayar Warga ${y}  (L = lunas, S = sebagian, B = belum)`, ['Rumah', ...BLN], body4,
-      { styles: { fontSize: 7.5, cellPadding: 1.2, lineColor: 255, lineWidth: 0.3 }, columnStyles: { 0: { cellWidth: 70 } } });
+      { styles: { fontSize: 7.5, cellPadding: 1.2, lineColor: 255, lineWidth: 0.3 }, columnStyles: { 0: { cellWidth: 70 } },
+        // garis bantu horizontal di bawah setiap baris
+        didDrawCell: d => { if (d.section !== 'body') return; doc.setDrawColor(140); doc.setLineWidth(0.25); const c = d.cell; doc.line(c.x, c.y, c.x + c.width, c.y); doc.line(c.x, c.y + c.height, c.x + c.width, c.y + c.height); } });
 
     // 3. Rekap pengeluaran 3 bulan terakhir
     // Bulan terakhir yang sudah selesai (sebelum bulan berjalan); untuk tahun lampau = Desember
