@@ -130,6 +130,13 @@
     const ys = new Set([new Date().getFullYear()]);
     S.d.transaksi.forEach(t => ys.add(+t.tanggal.slice(0, 4)));
     const man = ringkasanSheet(); if (man) Object.keys(man.bulan).forEach(k => ys.add(+k.slice(0, 4)));
+    const nowY = new Date().getFullYear();
+    if (isAdmin()) {
+      // Admin juga melihat tahun depan jika sudah ada iuran dibayar dimuka / kasbon / cicilan hutang
+      S.d.iuran_bulan.forEach(b => ys.add(+b.bulan.slice(0, 4)));
+      S.d.transaksi.forEach(t => { if (t.bulan) ys.add(+t.bulan.slice(0, 4)); });
+      S.d.hutang_mitra.forEach(h => ys.add(+h.bulan.slice(0, 4)));
+    } else return [...ys].filter(y => y <= nowY).sort((a, b) => b - a);
     return [...ys].sort((a, b) => b - a);
   }
   const yearSelect = () => `<label>Tahun<select id="fYear">${years().map(y => opt(y, y, y === S.year)).join('')}</select></label>`;
@@ -210,6 +217,17 @@
     const man = ringkasanSheet(), mb = man ? man.bulan : {}, cutoff = man ? man.cutoff : '';
     const nowY = new Date().getFullYear(), lastM = y === nowY ? new Date().getMonth() + 1 : (y > nowY ? 0 : 12);
     const rows = [];
+    if (y > nowY) {
+      // Tahun yang belum berjalan (khusus admin): berdasarkan bulan pembebanan
+      if (!isAdmin()) return rows;
+      monthsOfYear(y).forEach(ym => {
+        const masuk = sum(S.d.iuran_bulan.filter(b => b.bulan === ym), b => Number(b.nominal)) + sum(S.d.transaksi.filter(t => t.tipe === 'pemasukan' && t.bulan === ym), t => t.nilai);
+        const keluar = sum(S.d.transaksi.filter(t => t.tipe === 'pengeluaran' && t.bulan === ym), t => t.nilai);
+        const hutang = sum(S.d.hutang_mitra.filter(h => h.bulan === ym), h => Number(h.nominal));
+        if (masuk || keluar || hutang) rows.push({ ym, future: true, masuk, keluar, selisih: masuk - keluar, saldo: null, hutang });
+      });
+      return rows;
+    }
     monthsOfYear(y).slice(0, lastM).forEach(ym => {
       if (cutoff && ym <= cutoff) {
         const m = mb[ym]; if (!m) return;
@@ -224,6 +242,7 @@
     return rows;
   }
   function kasAwalTahun(y) {
+    if (y > new Date().getFullYear()) return null;
     const man = ringkasanSheet(), prev = `${y - 1}-12`;
     if (man && man.kasAwal && man.kasAwal[y] != null) return man.kasAwal[y];
     if (man && man.bulan[`${y}-01`] && `${y}-01` <= man.cutoff) return null;
@@ -264,6 +283,7 @@
         <tfoot><tr class="total"><td>Total</td><td class="num">${rp(sum(shown, r => r.masuk))}</td>
           <td class="num">${rp(sum(shown, r => r.keluar))}</td><td class="num">${rp(sum(shown, r => r.selisih))}</td><td class="num"></td></tr></tfoot>
       </table></div>
+      ${shown.some(r => r.future) ? `<p class="hint" style="margin-top:8px">Tahun ${y} belum berjalan. Pemasukan = iuran yang sudah dibayar dimuka untuk bulan tersebut; pengeluaran = yang dibebankan ke bulan tersebut. Cicilan hutang mitra yang akan dipotong: ${shown.filter(r => r.hutang).map(r => `${BLN[+r.ym.slice(5) - 1]} ${rp(r.hutang)}`).join(', ') || 'tidak ada'}. Hanya terlihat oleh admin.</p>` : ''}
       ${shown.some(r => r.sheet) ? `<p class="hint" style="margin-top:8px">Angka s.d. ${fmtBulan(ringkasanSheet().cutoff)} diambil dari Ringkasan Google Sheet lama.</p>` : ''}
       ${adm ? `<div class="panel" style="margin-top:18px"><h3>Saldo per dompet (saat ini)</h3><div class="table-wrap"><table><tbody>
         ${S.d.dompet.map(w => `<tr><td>${esc(w.nama)} <span class="badge">${w.jenis}</span></td><td class="num">${rp(saldo(w.id))}</td></tr>`).join('')}
