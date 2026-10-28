@@ -131,7 +131,8 @@ create table if not exists public.hutang_mitra (
   cicilan_ke  int,
   nominal     numeric(14,2) not null default 0,
   lunas       boolean not null default false,
-  transaksi_id uuid references public.transaksi on delete set null  -- gaji yang memotong cicilan ini
+  transaksi_id uuid references public.transaksi on delete set null,  -- gaji yang memotong cicilan ini
+  sumber_id    uuid references public.transaksi on delete set null   -- pengeluaran kasbon asal (belum terealisasi)
 );
 
 -- Kedatangan mitra yang digaji per kedatangan
@@ -236,6 +237,7 @@ create policy audit_admin_read on public.audit_log for select using (public.is_a
 -- ---------------------------------------------------------------------
 alter table public.mitra add column if not exists jenis_gaji text not null default 'bulanan';
 alter table public.hutang_mitra add column if not exists transaksi_id uuid references public.transaksi on delete set null;
+alter table public.hutang_mitra add column if not exists sumber_id uuid references public.transaksi on delete set null;
 alter table public.transaksi drop constraint if exists transaksi_komponen_check;
 alter table public.transaksi add constraint transaksi_komponen_check
   check (komponen in ('gaji_tengah','gaji','kasbon','lembur','thr','lainnya'));
@@ -254,7 +256,8 @@ insert into public.kategori (nama, urutan) values
   ('Operasional - Listrik, Air, Pulsa, Internet, Galon, dll', 3),
   ('Operasional - Biaya Admin, Pajak, dll', 4),
   ('Maintenance Aset, Pemeliharaan Taman, Cluster, dll', 5),
-  ('Lainnya', 9)
+  ('Lainnya', 9),
+  ('Kasbon Mitra (belum terealisasi)', 90)
 on conflict (nama) do nothing;
 
 insert into public.dompet (nama, jenis, saldo_awal) values
