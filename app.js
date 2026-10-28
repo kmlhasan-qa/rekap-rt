@@ -1552,7 +1552,8 @@
     $('#brandName').textContent = n + (MODE === 'admin' ? ' · Admin' : ''); document.title = MODE === 'admin' ? 'Admin · ' + n : n;
   }
   async function enterApp(me) {
-    if (MODE === 'admin' && me.role !== 'admin') { await DB.signOut(); return showLogin('Akun ini bukan akun admin.'); }
+    // Jangan logout: sesi warga di tab lain tetap aktif. Cukup minta login dengan akun admin.
+    if (MODE === 'admin' && me.role !== 'admin') return showLogin('Anda sedang masuk sebagai warga. Masuk dengan akun admin untuk membuka halaman ini.');
     S.me = me;
     $('#login').classList.add('hidden');
     $('#view').innerHTML = '<div class="empty">Memuat data...</div>';
