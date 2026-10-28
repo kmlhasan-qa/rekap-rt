@@ -278,3 +278,8 @@ label.check.inline { align-self: auto; padding: 0; margin: 0 0 12px; }
   table.stack tfoot tr { justify-content: space-between; }
   table.stack tbody tr:hover td { background: none; }
 }
+
+/* Admin view-only (role viewer): sembunyikan semua kontrol tulis */
+body.ro .rw, body.ro #setForm .btn.primary, body.ro #newMut, body.ro #doCair, body.ro #addBtn, body.ro #addOne, body.ro #addPlan,
+body.ro [data-adj], body.ro [data-vminus], body.ro [data-vplus], body.ro [data-edit], body.ro [data-del], body.ro [data-tog],
+body.ro [data-nama], body.ro [data-akt], body.ro #resetDemo { display: none !important; }

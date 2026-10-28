@@ -34,7 +34,8 @@
   const sum = (arr, f) => arr.reduce((a, x) => a + (Number(f ? f(x) : x) || 0), 0);
   // Halaman warga (index.html) selalu tampil sebagai warga; halaman admin (admin.html) khusus akun admin
   const MODE = window.APP_MODE === 'admin' ? 'admin' : 'warga';
-  const isAdmin = () => MODE === 'admin' && S.me && S.me.role === 'admin';
+  const isAdmin = () => MODE === 'admin' && S.me && (S.me.role === 'admin' || S.me.role === 'viewer');
+  const canWrite = () => isAdmin() && S.me.role === 'admin';
   const setting = k => (S.d.pengaturan.find(x => x.key === k) || {}).value;
   const mulaiTagih = () => setting('mulai_tagih') || ymOf(new Date().getFullYear(), 1);
   const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx'.replace(/x/g, () => (Math.random() * 16 | 0).toString(16)));
@@ -176,18 +177,18 @@
     { key: 'gaji', title: 'Gaji Mitra', render: pgGaji },
     { key: 'ipl', title: 'Besaran IPL', render: pgIpl, staff: true },
     { group: 'Admin', admin: true },
-    { key: 'input', title: 'Input Transaksi', render: pgInput, admin: true },
+    { key: 'input', title: 'Input Transaksi', render: pgInput, admin: true, write: true },
     { key: 'keuangan', title: 'Rekap Keuangan', render: pgKeuangan, admin: true },
     { key: 'riwayat', title: 'Riwayat Transaksi', render: pgRiwayat, admin: true },
     { key: 'master', title: 'Master Data', render: pgMaster, admin: true },
     { key: 'hutang', title: 'Hutang Mitra', render: pgHutang, admin: true },
     { key: 'catatan', title: 'Catatan', render: pgCatatan, admin: true },
-    { key: 'akun', title: 'Akun Pengguna', render: pgAkun, admin: true },
+    { key: 'akun', title: 'Akun Pengguna', render: pgAkun, admin: true, write: true },
     { key: 'audit', title: 'Audit Log', render: pgAudit, admin: true },
     { key: 'impor', title: 'Impor / Ekspor', render: pgImpor, admin: true },
   ];
 
-  const canSee = p => !(p.admin || p.staff) || isAdmin();
+  const canSee = p => (!(p.admin || p.staff) || isAdmin()) && (!p.write || canWrite());
   const ICON = {
     dashboard: '<path d="M4 13h6V4H4zM14 20h6v-9h-6zM4 20h6v-3H4zM14 4v3h6V4z"/>',
     bayar: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 14l2 2 4-4"/>',
@@ -203,13 +204,13 @@
     $('#nav').innerHTML = PAGES.filter(canSee).map(p => p.group
       ? `<div class="nav-group">${p.group}</div>`
       : `<a href="#${p.key}" data-key="${p.key}">${p.title}</a>`).join('');
-    const keys = isAdmin() ? ['dashboard', 'bayar', 'input', 'riwayat'] : ['dashboard', 'bayar', 'pengeluaran', 'gaji'];
+    const keys = isAdmin() ? ['dashboard', 'bayar', canWrite() ? 'input' : 'pengeluaran', 'riwayat'] : ['dashboard', 'bayar', 'pengeluaran', 'gaji'];
     $('#bottomNav').innerHTML = keys.map(k => `<a href="#${k}" data-key="${k}">${svg(k)}<span>${SHORT[k]}</span></a>`).join('')
       + (isAdmin() ? `<button type="button" id="bnMenu">${svg('menu')}<span>Lainnya</span></button>` : '');
     if ($('#bnMenu')) $('#bnMenu').onclick = () => $('#menuBtn').click();
   }
   function route() {
-    let key = (location.hash.match(/^#\/?(\w+)/) || [])[1] || (isAdmin() ? 'input' : 'dashboard');
+    let key = (location.hash.match(/^#\/?(\w+)/) || [])[1] || (canWrite() ? 'input' : 'dashboard');
     if (key === 'pencairan') key = 'gaji';
     let page = PAGES.find(p => p.key === key);
     if (!page || page.group || !canSee(page)) { page = PAGES[1]; }
@@ -469,7 +470,7 @@
       <div class="toolbar">${yearSelect()}${bulanSelect}</div>
       ${body}
       <p class="hint">${adm ? 'Angka dalam Rupiah. Sudah terbayar = gaji yang sudah dibayarkan, termasuk kasbon dan cicilan hutang bulan itu (yang akan dipotong saat pencairan). Total = gaji yang sudah diterima + lembur & lainnya. Mitra yang sudah resign tidak ditampilkan.' : 'Angka dalam Rupiah. Total = gaji pokok + lembur & lainnya yang sudah diterima.'}</p>
-      ${adm && sel ? '<div class="panel" style="margin-top:18px"><h3>Pencairan gaji ' + fmtBulan(sel) + '</h3><div id="pcrBox"></div></div>' : ''}`;
+      ${adm && sel ? '<div class="panel rw" style="margin-top:18px"><h3>Pencairan gaji ' + fmtBulan(sel) + '</h3><div id="pcrBox"></div></div>' : ''}`;
     bindYear(el, rerender);
     $('#fBulanGaji', el).onchange = e => { S.gajiBulan = e.target.value; rerender(); };
     if (adm && sel) pgPencairan($('#pcrBox', el), sel);
@@ -1052,7 +1053,7 @@
   function pgCatatan(el) {
     const f = S.fCat || (S.fCat = 'Open');
     const list = S.d.catatan.filter(c => !f || c.status === f).sort((a, b) => b.tanggal.localeCompare(a.tanggal));
-    el.innerHTML = `<form class="panel" id="cf"><div class="form-grid"><label>Tanggal<input type="date" name="tanggal" value="${todayISO()}" required></label>
+    el.innerHTML = `<form class="panel rw" id="cf"><div class="form-grid"><label>Tanggal<input type="date" name="tanggal" value="${todayISO()}" required></label>
         <label style="grid-column:span 3">Catatan<input name="isi" required placeholder="Mis. ada transfer tanpa konfirmasi"></label></div>
         <div class="form-actions"><button class="btn primary">Tambah catatan</button></div></form>
       <div class="tabs">${[['Open', 'Open'], ['Clear', 'Clear'], ['', 'Semua']].map(([v, l]) => `<button data-f="${v}" class="${v === f ? 'active' : ''}">${l}</button>`).join('')}</div>
@@ -1392,11 +1393,11 @@
     el.innerHTML = `
       <div class="panel"><h3>Ekspor laporan</h3><p class="hint">Excel berisi transaksi, ringkasan bulanan, rekap bayar warga, dan rekap pengeluaran. PDF berisi laporan siap cetak: ringkasan, rekap pengeluaran per bulan, gaji mitra, dan rekap bayar warga.</p>
         <div class="toolbar">${yearSelect()}<button class="btn primary" id="expBtn">Unduh Excel</button><button class="btn primary" id="pdfBtn">Unduh PDF</button></div>${framed ? '<p class="hint">Unduhan file tidak bisa berjalan di halaman preview ini. Akan berfungsi setelah aplikasi dipasang di GitHub Pages.</p>' : ''}</div>
-      <div class="panel"><h3>Migrasi dari Google Sheet lama</h3>
+      <div class="panel rw"><h3>Migrasi dari Google Sheet lama</h3>
         <p class="hint">Mengambil langsung dari Google Sheet (tab Data, Besaran IPL, Rekap Bayar Warga, Gaji Mitra, Hutang Mitra, Note, Ringkasan, Rekap Tunai). Browser ini harus login ke akun Google yang punya akses ke sheet. Jalankan sekali saja.</p>
         <div class="toolbar"><label style="flex:1;min-width:240px">Link Google Sheet<input id="migUrl" placeholder="https://docs.google.com/spreadsheets/d/..."></label><button class="btn primary" id="migCek">Periksa data</button></div>
         <div id="migBox"></div></div>
-      <div class="panel"><h3>Impor data lama (CSV dari Google Sheet)</h3>
+      <div class="panel rw"><h3>Impor data lama (CSV dari Google Sheet)</h3>
         <p class="hint">Di Google Sheets buka tab "Data" → File → Download → CSV. Format kolom mengikuti Google Form lama (Timestamp, Tipe Transaksi, Tanggal Bayar, Jenis Bayar, Nama & Nomer Rumah, Jumlah Transfer, Bulan Bayar, …). Rumah, kategori, dan dompet tunai yang belum ada akan dibuat otomatis. Impor cukup sekali agar data tidak dobel.</p>
         <input type="file" id="csvFile" accept=".csv,text/csv"><div id="impPrev" style="margin-top:12px"></div></div>
       ${DB.demo ? '<div class="panel"><h3>Mode demo</h3><p class="hint">Kembalikan data contoh ke kondisi awal.</p><button class="btn danger" id="resetDemo">Reset data demo</button></div>' : ''}`;
@@ -1549,14 +1550,19 @@
   }
   async function enterApp(me) {
     // Jangan logout: sesi warga di tab lain tetap aktif. Cukup minta login dengan akun admin.
-    if (MODE === 'admin' && me.role !== 'admin') return showLogin('Anda sedang masuk sebagai warga. Masuk dengan akun admin untuk membuka halaman ini.');
+    if (MODE === 'admin' && me.role !== 'admin' && me.role !== 'viewer') return showLogin('Anda sedang masuk sebagai warga. Masuk dengan akun admin untuk membuka halaman ini.');
     S.me = me;
+    document.body.classList.toggle('ro', MODE === 'admin' && me.role === 'viewer');
+    if (MODE === 'admin' && me.role === 'viewer' && !DB._roWrapped) {
+      ['insert', 'upsert', 'update', 'remove', 'removeWhere'].forEach(fn => { if (DB[fn]) DB[fn] = async () => { throw new Error('Akun ini hanya bisa melihat data (view only).'); }; });
+      DB._roWrapped = true;
+    }
     $('#login').classList.add('hidden');
     $('#view').innerHTML = '<div class="empty">Memuat data...</div>';
     $('#app').classList.remove('hidden');
     try { await loadAll(); } catch (e) { $('#view').innerHTML = `<div class="panel error">Gagal memuat data: ${esc(e.message)}</div>`; return; }
     applyBrand();
-    $('#userInfo').innerHTML = `${esc(me.nama)}<br><span class="badge ${isAdmin() ? 'info' : ''}">${isAdmin() ? 'Admin' : 'Warga · lihat saja'}</span>`;
+    $('#userInfo').innerHTML = `${esc(me.nama)}<br><span class="badge ${isAdmin() ? 'info' : ''}">${canWrite() ? 'Admin' : isAdmin() ? 'Admin · lihat saja' : 'Warga · lihat saja'}</span>`;
     buildNav(); route();
   }
   function showLogin(err) {
