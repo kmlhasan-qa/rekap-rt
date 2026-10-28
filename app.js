@@ -1655,8 +1655,9 @@
       { styles: { fontSize: 7.5, cellPadding: 1.2, lineColor: 255, lineWidth: 0.3 }, columnStyles: { 0: { cellWidth: 70 } } });
 
     // 3. Rekap pengeluaran 3 bulan terakhir
-    const lastM = y < +curYM().slice(0, 4) ? ymOf(y, 12) : curYM();
-    const ms3 = [0, 1, 2].map(i => ymAdd(lastM, -i)).filter(m => m.startsWith(String(y)));
+    // Bulan terakhir yang sudah selesai (sebelum bulan berjalan); untuk tahun lampau = Desember
+    const lastM = y < +curYM().slice(0, 4) ? ymOf(y, 12) : ymAdd(curYM(), -1);
+    const ms3 = [0, 1, 2].map(i => ymAdd(lastM, -i));
     const px = S.d.transaksi.filter(t => t.tipe === 'pengeluaran' && ms3.includes(bm(t)));
     const kats = S.d.kategori.slice(); if (px.some(t => !get('kategori', t.kategori_id))) kats.push({ id: null, nama: 'Tanpa kategori' });
     const body2 = [];
