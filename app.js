@@ -137,6 +137,8 @@
     S.d.transaksi.forEach(t => ys.add(+t.tanggal.slice(0, 4)));
     const man = ringkasanSheet(); if (man) Object.keys(man.bulan).forEach(k => ys.add(+k.slice(0, 4)));
     const nowY = new Date().getFullYear();
+    // Tahun yang punya status bayar warga (mis. sejak 2024) ikut tampil
+    S.d.iuran_bulan.forEach(b => ys.add(+b.bulan.slice(0, 4)));
     if (isAdmin()) {
       // Admin juga melihat tahun depan jika sudah ada iuran dibayar dimuka / kasbon / cicilan hutang
       S.d.iuran_bulan.forEach(b => ys.add(+b.bulan.slice(0, 4)));
