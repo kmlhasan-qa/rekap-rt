@@ -1085,7 +1085,18 @@
   }
 
   // ---------- Migrasi langsung dari Google Sheet lama (sekali jalan)
-  function gviz(sheetId, sheet, headers) {
+  // Ambil tab sheet sebagai CSV (tanpa konversi tipe). Jika gagal, pakai JSONP gviz.
+  async function gviz(sheetId, sheet, headers) {
+    try {
+      const r = await fetch(`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheet)}`, { credentials: 'omit' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const t = await r.text();
+      if (/^\s*</.test(t)) throw new Error('bukan CSV');
+      const rows = parseCSV(t);
+      return headers ? { cols: rows[0] || [], rows: rows.slice(1) } : { cols: [], rows };
+    } catch (e) { return gvizJsonp(sheetId, sheet, headers); }
+  }
+  function gvizJsonp(sheetId, sheet, headers) {
     return new Promise((resolve, reject) => {
       const cb = '__gv' + Math.random().toString(36).slice(2);
       const s = document.createElement('script');
