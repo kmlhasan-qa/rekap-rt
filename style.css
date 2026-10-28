@@ -283,3 +283,11 @@ label.check.inline { align-self: auto; padding: 0; margin: 0 0 12px; }
 body.ro .rw, body.ro #setForm .btn.primary, body.ro #newMut, body.ro #doCair, body.ro #addBtn, body.ro #addOne, body.ro #addPlan,
 body.ro [data-adj], body.ro [data-vminus], body.ro [data-vplus], body.ro [data-edit], body.ro [data-del], body.ro [data-tog],
 body.ro [data-nama], body.ro [data-akt], body.ro #resetDemo { display: none !important; }
+
+/* Kartu ringkasan: angka panjang mengecil mengikuti lebar kartu, tidak keluar border */
+.card { min-width: 0; container-type: inline-size; }
+.card .value { font-size: clamp(13px, 9.5cqi, 20px); line-height: 1.25; overflow-wrap: anywhere; }
+.card .value .small { display: inline-block; font-size: 12px; }
+.card .label, .card .small { overflow-wrap: anywhere; }
+td, th { overflow-wrap: anywhere; }
+td.num, th.num { overflow-wrap: normal; white-space: nowrap; }
