@@ -430,12 +430,22 @@
     const ms = monthsOfYear(S.year);
     const bm = t => t.bulan || t.tanggal.slice(0, 7);
     const tx = S.d.transaksi.filter(t => t.tipe === 'pengeluaran' && t.mitra_id && ms.includes(bm(t)));
-    const mitra = S.d.mitra.filter(m => m.aktif).sort((a, b) => a.nama.localeCompare(b.nama, 'id'));
+    // Urut berdasarkan posisi (Satpam, Taman, lainnya), lalu nama
+    const posRank = p => { const i = ['satpam', 'taman'].findIndex(x => String(p || '').toLowerCase().includes(x)); return i < 0 ? 9 : i; };
+    const mitra = S.d.mitra.filter(m => m.aktif).sort((a, b) => posRank(a.posisi) - posRank(b.posisi) || String(a.posisi || '').localeCompare(String(b.posisi || ''), 'id') || a.nama.localeCompare(b.nama, 'id'));
     const shownMs = ms.filter(m => m <= curYM() || tx.some(t => bm(t) === m));
     const calc = gajiCalc;
-    const head = first => `<tr><th>${first}</th><th class="num">Gaji</th><th class="num">Sudah terbayar</th><th class="num">Belum terbayar</th><th class="num">Lembur & lainnya</th><th class="num">Total</th></tr>`;
-    const cells = c => `<td class="num">${num0(c.gaji)}</td><td class="num">${num0(c.terbayar)}</td><td class="num ${c.belum ? 'neg' : ''}">${num0(c.belum)}</td><td class="num">${num0(c.lain)}</td><td class="num"><b>${num0(c.total)}</b></td>`;
-    const foot = list => `<td class="num">${num0(sum(list, c => c.gaji))}</td><td class="num">${num0(sum(list, c => c.terbayar))}</td><td class="num">${num0(sum(list, c => c.belum))}</td><td class="num">${num0(sum(list, c => c.lain))}</td><td class="num">${num0(sum(list, c => c.total))}</td>`;
+    // Admin: gaji, sudah/belum terbayar, lain-lain, total diterima. Warga: gaji pokok seharusnya + lain-lain yang sudah diterima.
+    const nCol = adm ? 6 : 4;
+    const head = first => adm
+      ? `<tr><th>${first}</th><th class="num">Gaji</th><th class="num">Sudah terbayar</th><th class="num">Belum terbayar</th><th class="num">Lembur & lainnya</th><th class="num">Total</th></tr>`
+      : `<tr><th>${first}</th><th class="num">Gaji pokok</th><th class="num">Lembur & lainnya</th><th class="num">Total</th></tr>`;
+    const cells = c => adm
+      ? `<td class="num">${num0(c.gaji)}</td><td class="num">${num0(c.terbayar)}</td><td class="num ${c.belum ? 'neg' : ''}">${num0(c.belum)}</td><td class="num">${num0(c.lain)}</td><td class="num"><b>${num0(c.total)}</b></td>`
+      : `<td class="num">${num0(c.gaji)}</td><td class="num">${num0(c.lain)}</td><td class="num"><b>${num0(c.gaji + c.lain)}</b></td>`;
+    const foot = list => adm
+      ? `<td class="num">${num0(sum(list, c => c.gaji))}</td><td class="num">${num0(sum(list, c => c.terbayar))}</td><td class="num">${num0(sum(list, c => c.belum))}</td><td class="num">${num0(sum(list, c => c.lain))}</td><td class="num">${num0(sum(list, c => c.total))}</td>`
+      : `<td class="num">${num0(sum(list, c => c.gaji))}</td><td class="num">${num0(sum(list, c => c.lain))}</td><td class="num">${num0(sum(list, c => c.gaji + c.lain))}</td>`;
     if (S.gajiBulan === undefined || (S.gajiBulan && S.gajiBulan.slice(0, 4) !== String(S.year))) S.gajiBulan = String(S.year) === curYM().slice(0, 4) ? curYM() : '';
     const sel = S.gajiBulan;
     const bulanSelect = `<label>Bulan<select id="fBulanGaji">${opt('', 'Semua bulan', !sel)}${shownMs.slice().reverse().map(m => opt(m, BULAN[+m.slice(5) - 1], m === sel)).join('')}</select></label>`;
@@ -443,15 +453,15 @@
     if (sel) {
       const rows = mitra.map(mt => ({ mt, c: calc(mt, sel) }));
       body = `<div class="table-wrap"><table class="sectioned compact">
-        <thead><tr class="sep"><td colspan="6">${fmtBulan(sel)}</td></tr>${head('Mitra')}</thead>
-        <tbody>${rows.map(r => `<tr><td>${esc(r.mt.nama)}<div class="muted small">${esc(r.mt.posisi || '')}${r.mt.jenis_gaji === 'kedatangan' ? ' · per kedatangan' : ''}</div></td>${cells(r.c)}</tr>`).join('') || '<tr><td colspan="6" class="empty">Belum ada mitra aktif</td></tr>'}</tbody>
+        <thead><tr class="sep"><td colspan="${nCol}">${fmtBulan(sel)}</td></tr>${head('Mitra')}</thead>
+        <tbody>${rows.map(r => `<tr><td>${esc(r.mt.nama)}<div class="muted small">${esc(r.mt.posisi || '')}${r.mt.jenis_gaji === 'kedatangan' ? ' · per kedatangan' : ''}</div></td>${cells(r.c)}</tr>`).join('') || `<tr><td colspan="${nCol}" class="empty">Belum ada mitra aktif</td></tr>`}</tbody>
         <tfoot><tr class="subtotal"><td>Total</td>${foot(rows.map(r => r.c))}</tr></tfoot>
       </table></div>`;
     } else {
       body = mitra.map(mt => {
         const list = shownMs.map(m => ({ m, c: calc(mt, m) }));
         return `<div class="table-wrap mitra-block"><table class="sectioned compact">
-          <thead><tr class="sep"><td colspan="6">${esc(mt.nama)} <span class="sep-sub">${esc(mt.posisi || '')}${adm ? ' · ' + gajiLabel(mt) : (mt.jenis_gaji === 'kedatangan' ? ' · per kedatangan' : '')}</span></td></tr>${head('Bulan')}</thead>
+          <thead><tr class="sep"><td colspan="${nCol}">${esc(mt.nama)} <span class="sep-sub">${esc(mt.posisi || '')}${adm ? ' · ' + gajiLabel(mt) : (mt.jenis_gaji === 'kedatangan' ? ' · per kedatangan' : '')}</span></td></tr>${head('Bulan')}</thead>
           <tbody>${list.map(x => `<tr><td>${BLN[+x.m.slice(5) - 1]}</td>${cells(x.c)}</tr>`).join('')}</tbody>
           <tfoot><tr class="subtotal"><td>Total</td>${foot(list.map(x => x.c))}</tr></tfoot>
         </table></div>`;
@@ -460,7 +470,7 @@
     el.innerHTML = `
       <div class="toolbar">${yearSelect()}${bulanSelect}</div>
       ${body}
-      <p class="hint">Angka dalam Rupiah. Sudah terbayar = gaji yang sudah dibayarkan (termasuk kasbon dan cicilan yang dipotong). Total = gaji yang sudah diterima + lembur & lainnya. Mitra yang sudah resign tidak ditampilkan.</p>
+      <p class="hint">${adm ? 'Angka dalam Rupiah. Sudah terbayar = gaji yang sudah dibayarkan (termasuk kasbon dan cicilan yang dipotong). Total = gaji yang sudah diterima + lembur & lainnya. Mitra yang sudah resign tidak ditampilkan.' : 'Angka dalam Rupiah. Total = gaji pokok + lembur & lainnya yang sudah diterima.'}</p>
       ${adm && sel ? '<div class="panel" style="margin-top:18px"><h3>Pencairan gaji ' + fmtBulan(sel) + '</h3><div id="pcrBox"></div></div>' : ''}`;
     bindYear(el, rerender);
     $('#fBulanGaji', el).onchange = e => { S.gajiBulan = e.target.value; rerender(); };
