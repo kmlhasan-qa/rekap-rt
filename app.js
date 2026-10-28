@@ -544,10 +544,11 @@
     const realNow = sum(aktif, r => S.paid.get(r.id + '|' + now) || 0);
     const realPrev = sum(aktif, r => S.paid.get(r.id + '|' + prev) || 0);
     const rutin = aktif.filter(r => [1, 2, 3].every(i => statusBulan(r, ymAdd(now, -i)).s !== 'unpaid')).length;
-    // Realisasi rata-rata per bulan = total iuran yang dialokasikan ke bulan-bulan itu (semua rumah) / jumlah bulan
-    const realBulan = m => sum(S.d.rumah, r => S.paid.get(r.id + '|' + m) || 0);
-    const avgReal = ms => ms.length ? sum(ms, realBulan) / ms.length : 0;
+    // Realisasi per bulan = pemasukan bulan itu (Ringkasan) − pemasukan non-iuran bulan itu (menurut tanggal)
     const thisY = +now.slice(0, 4), lastY = thisY - 1;
+    const masukBln = new Map([...ringkasanTahun(lastY), ...ringkasanTahun(thisY)].map(x => [x.ym, x.masuk || 0]));
+    const realBulan = m => (masukBln.get(m) || 0) - sum(S.d.transaksi.filter(t => t.tipe === 'pemasukan' && t.tanggal.slice(0, 7) === m), t => t.nilai);
+    const avgReal = ms => ms.length ? sum(ms, realBulan) / ms.length : 0;
     const msLast = monthsOfYear(lastY), msNow = monthsOfYear(thisY).filter(m => m <= now);
     const avgLast = avgReal(msLast), avgNow = avgReal(msNow);
     const pct = v => potensi ? Math.round(v / potensi * 100) + '%' : '';
