@@ -1028,7 +1028,7 @@
           ${list.map(h => { ak += Number(h.nominal); return `<tr><td>${fmtBulan(h.bulan)}</td><td class="num">${h.cicilan_ke ?? ''}</td><td class="num">${rp(h.nominal)}</td><td class="num">${rp(ak)}</td>
             <td><input type="checkbox" data-lunas="${h.id}" ${h.lunas ? 'checked' : ''} style="width:auto"> ${h.transaksi_id ? '<span class="badge ok">potong gaji</span>' : ''}</td><td><button class="btn small danger" data-del="${h.id}">Hapus</button></td></tr>`; }).join('')}
           </tbody></table></div></div>`; }).join('') || '<div class="empty panel">Belum ada data hutang mitra</div>'}`;
-    const mitraOpts = S.d.mitra.map(m => opt(m.id, m.nama)).join('');
+    const mitraOpts = S.d.mitra.filter(m => m.aktif && !(m.tgl_resign && m.tgl_resign <= todayISO())).sort((a, b) => a.nama.localeCompare(b.nama)).map(m => opt(m.id, `${m.nama}${m.posisi ? ' (' + m.posisi + ')' : ''}`)).join('');
     $('#addOne', el).onclick = () => openModal('Tambah cicilan', `<form id="hf"><div class="form-grid">
         <label>Mitra<select name="mitra_id">${mitraOpts}</select></label><label>Keterangan<input name="keterangan" value="Cicilan pinjaman"></label>
         <label>Bulan<input type="month" name="bulan" required value="${curYM()}"></label><label>Cicilan ke<input type="number" name="cicilan_ke" value="1"></label>
