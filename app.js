@@ -292,7 +292,7 @@
           </div>`).join('') || '<div class="empty">Belum ada data</div>'}</div>
       <div class="table-wrap desk-only"><table>
         <thead><tr><th>Bulan</th><th class="num">Pemasukan</th><th class="num">Pengeluaran</th><th class="num">Selisih</th><th class="num">Saldo akhir</th></tr></thead>
-        <tbody>${shown.map(r => `<tr><td>${fmtBulan(r.ym)}</td><td class="num">${rp(r.masuk)}</td>
+        <tbody>${shown.slice().reverse().map(r => `<tr><td>${fmtBulan(r.ym)}</td><td class="num">${rp(r.masuk)}</td>
           <td class="num">${rp(r.keluar)}</td><td class="num ${r.selisih < 0 ? 'neg' : 'pos'}">${rp(r.selisih)}</td><td class="num">${rpx(r.saldo)}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">Belum ada data</td></tr>'}</tbody>
         <tfoot><tr class="total"><td>Total</td><td class="num">${rp(sum(shown, r => r.masuk))}</td>
           <td class="num">${rp(sum(shown, r => r.keluar))}</td><td class="num">${rp(sum(shown, r => r.selisih))}</td><td class="num"></td></tr></tfoot>
