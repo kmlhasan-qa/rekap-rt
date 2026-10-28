@@ -271,7 +271,7 @@
     const kbRek = kasbonBelum(rekIds), kbTun = kasbonBelum(tunIds);
     const rek = sum(rekIds, id => saldo(id)) + kbRek;
     const tunai = sum(tunIds, id => saldo(id)) + kbTun;
-    const kbNote = v => v ? `<div class="small muted">termasuk kasbon mitra belum terealisasi ${rp(v)}</div>` : '';
+    const kbNote = v => v && isAdmin() ? `<div class="small muted">termasuk kasbon mitra belum terealisasi ${rp(v)}</div>` : '';
     const isNow = y === new Date().getFullYear(), adm = isAdmin();
     el.innerHTML = `
       <div class="toolbar">${yearSelect()}<span class="spacer"></span>${framed ? '' : '<button class="btn desk-only" id="printBtn">Print</button>'}</div>
@@ -385,10 +385,10 @@
         ${months.map(m => `<tbody><tr class="sep"><td colspan="2">${fmtBulan(m)}</td></tr>
           ${kats.filter(k => !/belum terealisasi/i.test(k.nama)).map(k => { const v = sum(cell(k.id, m), t => t.nilai); return v ? `<tr class="clickable-row" data-k="${k.id}" data-m="${m}"><td class="wrap">${esc(k.nama)}</td><td class="num">${rp(v)}</td></tr>` : ''; }).join('')}
           <tr class="subtotal"><td>Total ${fmtBulan(m)}</td><td class="num">${rp(sum(tx.filter(t => bm(t) === m && !isUnreal(t)), t => t.nilai))}</td></tr>
-          ${kats.filter(k => /belum terealisasi/i.test(k.nama)).map(k => { const v = sum(cell(k.id, m), t => t.nilai); return v ? `<tr class="clickable-row unreal" data-k="${k.id}" data-m="${m}"><td class="wrap">Kasbon mitra <span class="badge warn">belum terealisasi</span></td><td class="num">${rp(v)}</td></tr>` : ''; }).join('')}</tbody>`).join('') || '<tbody><tr><td colspan="2" class="empty">Belum ada pengeluaran</td></tr></tbody>'}
+          ${!isAdmin() ? '' : kats.filter(k => /belum terealisasi/i.test(k.nama)).map(k => { const v = sum(cell(k.id, m), t => t.nilai); return v ? `<tr class="clickable-row unreal" data-k="${k.id}" data-m="${m}"><td class="wrap">Kasbon mitra <span class="badge warn">belum terealisasi</span></td><td class="num">${rp(v)}</td></tr>` : ''; }).join('')}</tbody>`).join('') || '<tbody><tr><td colspan="2" class="empty">Belum ada pengeluaran</td></tr></tbody>'}
         <tfoot><tr class="total"><td>Total ${S.year}</td><td class="num">${rp(sum(tx.filter(t => !isUnreal(t)), t => t.nilai))}</td></tr></tfoot>
       </table></div>
-      ${tx.some(isUnreal) ? '<p class="hint" style="margin-top:8px">Kasbon mitra belum terealisasi: uang sudah dibayarkan ke mitra tetapi belum dipotong dari gaji, sehingga belum dihitung sebagai pengeluaran. Akan menjadi pengeluaran gaji di bulan cicilannya dipotong.</p>' : ''}`;
+      ${isAdmin() && tx.some(isUnreal) ? '<p class="hint" style="margin-top:8px">Kasbon mitra belum terealisasi: uang sudah dibayarkan ke mitra tetapi belum dipotong dari gaji, sehingga belum dihitung sebagai pengeluaran. Akan menjadi pengeluaran gaji di bulan cicilannya dipotong.</p>' : ''}`;
     }
     bindYear(el, rerender);
     $$('[data-m]', el).forEach(s => s.onclick = () => {
