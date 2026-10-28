@@ -224,6 +224,26 @@
   }
   const rerender = () => route();
 
+  // Tabel yang lebih lebar dari layar HP otomatis ditampilkan sebagai kartu (label kolom di kiri, nilai di kanan)
+  const MOBILE = () => window.matchMedia('(max-width: 860px)').matches;
+  function autoCards() {
+    $$('#view table, #modalBody table').forEach(t => {
+      if (t.matches('.matrix, .stack, .no-card')) return;
+      if (!MOBILE()) { t.classList.remove('acard'); return; }
+      if (t.classList.contains('acard')) return;
+      const wrap = t.parentElement; if (!wrap || t.scrollWidth <= wrap.clientWidth + 2) return;
+      const hr = t.tHead && t.tHead.rows[t.tHead.rows.length - 1]; if (!hr) return;
+      const heads = []; [...hr.cells].forEach(c => { for (let k = 0; k < (c.colSpan || 1); k++) heads.push(c.textContent.trim()); });
+      [...t.querySelectorAll('tbody tr, tfoot tr')].forEach(tr => {
+        let ci = 0;
+        [...tr.cells].forEach(c => { if ((c.colSpan || 1) > 1) c.classList.add('ac-span'); else if (heads[ci] && !c.dataset.label) c.dataset.label = heads[ci]; ci += c.colSpan || 1; });
+      });
+      t.classList.add('acard');
+    });
+  }
+  let acT; new MutationObserver(() => { clearTimeout(acT); acT = setTimeout(autoCards, 60); }).observe(document.body, { childList: true, subtree: true });
+  window.addEventListener('resize', () => { clearTimeout(acT); acT = setTimeout(() => { $$('table.acard').forEach(t => t.classList.remove('acard')); autoCards(); }, 150); });
+
   // ---------- Ringkasan
   // Bulan s.d. "cutoff" memakai angka tab Ringkasan sheet lama (disimpan di pengaturan 'ringkasan_sheet');
   // bulan sesudahnya dihitung dari transaksi aplikasi.
@@ -343,16 +363,16 @@
       </div>
       <div class="legend"><span class="l-paid">Lunas</span>${adm ? '<span class="l-partial">Sebagian</span>' : ''}<span class="l-unpaid">Belum</span><span class="l-future">Belum jatuh tempo</span></div>
       <div class="table-wrap"><table class="matrix">
-        <thead><tr><th class="sticky-col">Rumah</th>${adm ? '<th class="num">IPL</th>' : ''}${ms.map(m => `<th class="num">${BLN[+m.slice(5) - 1]}</th>`).join('')}${adm ? '<th class="num">Tunggakan</th><th class="num">Total tunggakan</th><th></th>' : ''}</tr></thead>
+        <thead><tr><th class="sticky-col">Rumah</th>${adm ? '<th class="num hide-m">IPL</th>' : ''}${ms.map(m => `<th class="num">${BLN[+m.slice(5) - 1]}</th>`).join('')}${adm ? '<th class="num">Tunggakan</th><th class="num">Total tunggakan</th><th></th>' : ''}</tr></thead>
         <tbody>${rumah.map(({ r, tg }) => `<tr>
-          <td class="sticky-col rumah-col"><b>${esc(r.kode)}</b> <span class="nm">${esc(r.nama || '')}</span>${r.aktif ? '' : ' <span class="badge">nonaktif</span>'}</td>${adm ? `<td class="num">${rp(r.ipl)}</td>` : ''}
+          <td class="sticky-col rumah-col"><b>${esc(r.kode)}</b> <span class="nm">${esc(r.nama || '')}</span>${r.aktif ? '' : ' <span class="badge">nonaktif</span>'}</td>${adm ? `<td class="num hide-m">${rp(r.ipl)}</td>` : ''}
           ${ms.map(m => { const st = statusBulan(r, m); return `<td class="cell ${st.s}" title="${fmtBulan(m)}${adm ? ': ' + rp(st.paid) : ''}">${sym[st.s]}</td>`; }).join('')}
           ${adm ? `<td class="num ${tg.bulan.length ? 'neg' : ''}">${tg.bulan.length} bln</td><td class="num ${tg.total ? 'neg' : ''}">${rp(tg.total)}</td>
           <td>${tg.bulan.length ? `<a class="btn small" target="_blank" rel="noopener" href="${waLink(r, tg)}">Pengingat WA</a>` : ''}</td>` : ''}
         </tr>`).join('') || `<tr><td colspan="${ms.length + 1 + (adm ? 4 : 0)}" class="empty">Tidak ada data</td></tr>`}</tbody>
         <tfoot>
-          <tr class="total"><td class="sticky-col">Rumah lunas</td>${adm ? '<td></td>' : ''}${ms.map(m => `<td class="num">${rumah.filter(x => statusBulan(x.r, m).s === 'paid').length}</td>`).join('')}${adm ? `<td></td><td class="num">${rp(sum(rumah, x => x.tg.total))}</td><td></td>` : ''}</tr>
-          ${adm ? `<tr class="total"><td class="sticky-col">Terkumpul</td><td></td>${ms.map(m => `<td class="num small">${(sum(rumah, x => S.paid.get(x.r.id + '|' + m) || 0) / 1000).toLocaleString('id-ID')}rb</td>`).join('')}<td></td><td></td><td></td></tr>` : ''}
+          <tr class="total"><td class="sticky-col">Rumah lunas</td>${adm ? '<td class="hide-m"></td>' : ''}${ms.map(m => `<td class="num">${rumah.filter(x => statusBulan(x.r, m).s === 'paid').length}</td>`).join('')}${adm ? `<td></td><td class="num">${rp(sum(rumah, x => x.tg.total))}</td><td></td>` : ''}</tr>
+          ${adm ? `<tr class="total"><td class="sticky-col">Terkumpul</td><td class="hide-m"></td>${ms.map(m => `<td class="num small">${(sum(rumah, x => S.paid.get(x.r.id + '|' + m) || 0) / 1000).toLocaleString('id-ID')}rb</td>`).join('')}<td></td><td></td><td></td></tr>` : ''}
         </tfoot>
       </table></div>`;
     bindYear(el, rerender);
@@ -503,7 +523,7 @@
       </div>`;
     const muts = tx.filter(t => t.tipe === 'mutasi').slice(-20).reverse();
     el.innerHTML = `
-      <div class="cards">
+      <div class="cards c3">
         <div class="card"><div class="label">Total kas</div><div class="value">${rp(sum(rek, x => x.saldo) + sum(tun, x => x.saldo))}</div></div>
         <div class="card"><div class="label">Total rekening</div><div class="value">${rp(sum(rek, x => x.saldo))}</div></div>
         <div class="card"><div class="label">Total tunai</div><div class="value">${rp(sum(tun, x => x.saldo))}</div></div>
@@ -562,7 +582,7 @@
   // ---------- Input transaksi
   function pgInput(el) {
     const tipe = S.inputTipe || 'iuran';
-    el.innerHTML = `<div class="tabs">${Object.keys(TIPE_LABEL).map(t => `<button data-t="${t}" class="${t === tipe ? 'active' : ''}">${TIPE_LABEL[t]}</button>`).join('')}</div>
+    el.innerHTML = `<div class="tabs tabs-4">${Object.keys(TIPE_LABEL).map(t => `<button data-t="${t}" class="${t === tipe ? 'active' : ''}">${t === 'pemasukan' ? 'Pemasukan<span class="hide-m"> lain</span>' : TIPE_LABEL[t]}</button>`).join('')}</div>
       <div class="panel" id="formBox"></div>
       <div class="panel"><h3>Input terakhir</h3><div id="lastBox"></div></div>`;
     $$('.tabs button', el).forEach(b => b.onclick = () => { S.inputTipe = b.dataset.t; rerender(); });
@@ -610,7 +630,9 @@
       else if (e.key === 'Escape') hide();
     });
     const scrollAct = () => { const el = $(`.combo-item[data-i="${act}"]`, list); if (el) el.scrollIntoView({ block: 'nearest' }); };
-    list.addEventListener('pointerdown', e => { e.preventDefault(); const it = e.target.closest('.combo-item'); if (it) pick(items[+it.dataset.i]); });
+    // Jangan ambil fokus dari input saat menyentuh daftar (agar bisa digulir), pilih hanya saat ketuk/klik
+    list.addEventListener('mousedown', e => e.preventDefault());
+    list.addEventListener('click', e => { const it = e.target.closest('.combo-item'); if (it) pick(items[+it.dataset.i]); });
     input.addEventListener('blur', () => setTimeout(() => {
       hide();
       if (input.value.trim() && !exact() && items.length === 1) pick(items[0]);
@@ -937,15 +959,16 @@
     const masuk = sum(list.filter(t => t.tipe === 'iuran' || t.tipe === 'pemasukan'), t => t.nilai);
     const keluar = sum(list.filter(t => t.tipe === 'pengeluaran'), t => t.nilai);
     el.innerHTML = `
-      <div class="toolbar">
+      <div class="toolbar collapsible ${S.riwOpen ? 'open' : ''}">
+        <label class="keep">Cari<input id="fQ" value="${esc(f.q)}" placeholder="Rumah, mitra, ket."></label>
+        <button type="button" class="btn filt-toggle" id="filtTog">${S.riwOpen ? 'Tutup filter' : 'Filter'}${(f.tipe ? 1 : 0) + (f.dompet ? 1 : 0) + (f.kategori ? 1 : 0) + (f.sampai ? 1 : 0) ? ` (${(f.tipe ? 1 : 0) + (f.dompet ? 1 : 0) + (f.kategori ? 1 : 0) + (f.sampai ? 1 : 0)} aktif)` : ''}</button>
         <label>Dari<input type="date" id="fDari" value="${f.dari}"></label>
         <label>Sampai<input type="date" id="fSampai" value="${f.sampai}"></label>
         <label>Tipe<select id="fTipe">${opt('', 'Semua')}${Object.keys(TIPE_LABEL).map(t => opt(t, TIPE_LABEL[t], t === f.tipe)).join('')}</select></label>
         <label>Dompet<select id="fDompet">${opt('', 'Semua')}${S.d.dompet.map(w => opt(w.id, w.nama, w.id === f.dompet)).join('')}</select></label>
         <label>Kategori<select id="fKat">${opt('', 'Semua')}${S.d.kategori.map(k => opt(k.id, k.nama, k.id === f.kategori)).join('')}</select></label>
-        <label>Cari<input id="fQ" value="${esc(f.q)}" placeholder="Keterangan / rumah / mitra"></label>
       </div>
-      <div class="cards">
+      <div class="cards c3">
         <div class="card"><div class="label">Jumlah transaksi</div><div class="value">${list.length}</div></div>
         <div class="card"><div class="label">Total masuk</div><div class="value pos">${rp(masuk)}</div></div>
         <div class="card"><div class="label">Total keluar</div><div class="value neg">${rp(keluar)}</div></div>
@@ -958,6 +981,7 @@
       </table></div>
       ${list.length > f.n ? `<div class="form-actions" style="justify-content:center"><button class="btn" id="more">Tampilkan lebih banyak (${list.length - f.n} lagi)</button></div>` : ''}`;
     const bind = (id, k, num) => $(id, el).onchange = e => { f[k] = num ? +e.target.value : e.target.value; f.n = 100; rerender(); };
+    $('#filtTog', el).onclick = () => { S.riwOpen = !S.riwOpen; rerender(); };
     bind('#fDari', 'dari'); bind('#fSampai', 'sampai'); bind('#fTipe', 'tipe'); bind('#fDompet', 'dompet'); bind('#fKat', 'kategori'); bind('#fQ', 'q');
     if ($('#more', el)) $('#more', el).onclick = () => { f.n += 200; rerender(); };
     $$('[data-edit]', el).forEach(b => b.onclick = () => {
@@ -1069,7 +1093,7 @@
       ${Object.keys(groups).map(k => { const list = groups[k]; const m = get('mitra', list[0].mitra_id); let ak = 0;
         const total = sum(list, h => h.nominal), lunas = sum(list.filter(h => h.lunas), h => h.nominal);
         return `<div class="panel"><h3>${esc(m ? m.nama : 'Tanpa mitra')} — ${esc(list[0].keterangan || '')}</h3>
-          <div class="cards"><div class="card"><div class="label">Total</div><div class="value">${rp(total)}</div></div><div class="card"><div class="label">Sudah lunas</div><div class="value pos">${rp(lunas)}</div></div><div class="card"><div class="label">Sisa</div><div class="value neg">${rp(total - lunas)}</div></div></div>
+          <div class="cards c3"><div class="card"><div class="label">Total</div><div class="value">${rp(total)}</div></div><div class="card"><div class="label">Sudah lunas</div><div class="value pos">${rp(lunas)}</div></div><div class="card"><div class="label">Sisa</div><div class="value neg">${rp(total - lunas)}</div></div></div>
           <div class="table-wrap"><table><thead><tr><th>Bulan</th><th class="num">Cicilan ke</th><th class="num">Nominal</th><th class="num">Akumulasi</th><th>Lunas</th><th></th></tr></thead><tbody>
           ${list.map(h => { ak += Number(h.nominal); return `<tr><td>${fmtBulan(h.bulan)}</td><td class="num">${h.cicilan_ke ?? ''}</td><td class="num">${rp(h.nominal)}</td><td class="num">${rp(ak)}</td>
             <td><input type="checkbox" data-lunas="${h.id}" ${h.lunas ? 'checked' : ''} style="width:auto"> ${h.transaksi_id ? '<span class="badge ok">potong gaji</span>' : ''}</td><td><button class="btn small danger" data-del="${h.id}">Hapus</button></td></tr>`; }).join('')}

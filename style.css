@@ -311,3 +311,41 @@ td.num, th.num { overflow-wrap: normal; white-space: nowrap; }
 .badge.danger { background: var(--bad-soft); color: var(--bad); }
 @media (max-width: 700px) { .combo-list { max-height: 50vh; } .combo-item { padding: 11px 10px; } }
 .combo-list { right: auto; width: max(100%, min(380px, calc(100vw - 32px))); }
+
+/* ===== Mobile layout polish ===== */
+.filt-toggle { display: none; }
+@media (max-width: 860px) {
+  .view { padding: 12px; }
+  .hide-m { display: none !important; }
+  .cards.c3 > .card:first-child { grid-column: 1 / -1; }
+  /* Tab: bungkus ke baris berikut, tidak terpotong */
+  .tabs { flex-wrap: wrap; overflow: visible; gap: 6px; }
+  .tabs button { flex: 1 1 auto; text-align: center; padding: 8px 12px; }
+  /* Filter riwayat bisa dilipat */
+  .toolbar.collapsible .keep { grid-column: 1 / 2; }
+  .toolbar.collapsible .filt-toggle { display: block; grid-column: 2 / 3; align-self: end; height: 42px; }
+  .toolbar.collapsible:not(.open) > label:not(.keep) { display: none; }
+  .hint { line-height: 1.45; }
+  .table-wrap + .hint, .table-wrap + p.hint { margin-top: 8px; }
+
+  /* Tabel lebar -> kartu */
+  table.acard, table.acard tbody, table.acard tfoot { display: block; width: 100%; }
+  table.acard thead { display: none; }
+  table.acard tr { display: block; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  table.acard td { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 3px 0; border: 0; text-align: right; white-space: normal; }
+  table.acard td::before { content: attr(data-label); color: var(--muted); font-size: 12.5px; font-weight: 400; text-align: left; flex-shrink: 0; max-width: 55%; }
+  table.acard td:first-child { display: block; text-align: left; font-weight: 600; font-size: 14.5px; padding-bottom: 6px; }
+  table.acard td:first-child::before { display: none; }
+  table.acard td:empty, table.acard td[data-label=""]:empty { display: none; }
+  table.acard td.ac-span { display: block; text-align: left; }
+  table.acard td.ac-span::before { display: none; }
+  table.acard tfoot tr { background: var(--primary-soft); border-radius: 0 0 10px 10px; }
+  table.acard tfoot td { font-weight: 700; }
+  table.acard tr.sep td, table.acard tr.group td { background: none; }
+  table.acard td .row-actions, table.acard td .btn { margin-left: auto; }
+}
+@media (max-width: 860px) {
+  .tabs.tabs-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+  .tabs.tabs-4 button { padding: 8px 4px; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+.combo-list { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; touch-action: pan-y; }
