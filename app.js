@@ -1523,19 +1523,21 @@
         ${ok.length ? `<div class="form-actions"><button class="btn primary" id="mutSave">Simpan ${ok.length} periode</button></div>` : ''}`;
       if (!ok.length) return;
       $('#mutSave', box).onclick = async ev => {
+        if (S._mutSaving) return; S._mutSaving = true;
         ev.target.disabled = true; ev.target.textContent = 'Menyimpan...';
         const dompetId = $('#mutDompet', el).value || null;
         try {
+          const fresh = (await loadMutasi(true)).per;
           for (const p of ok) {
-            const ex = exist(p); if (ex) await DB.remove('mutasi_periode', ex.id);
+            for (const ex of fresh.filter(x => x.no_rekening === p.meta.rek && x.periode === p.periode)) await DB.remove('mutasi_periode', ex.id);
             const [row] = await DB.insert('mutasi_periode', { dompet_id: dompetId, no_rekening: p.meta.rek, nama_rekening: p.meta.nama || null, bank: /mandiri/i.test(JSON.stringify(p.meta)) || /mandiri/i.test(file.name) ? 'Mandiri' : null,
               periode: p.periode, tgl_awal: p.tglAwal, tgl_akhir: p.tglAkhir, saldo_awal: p.awal, total_masuk: p.masuk, total_keluar: p.keluar, saldo_akhir: p.akhir, nama_file: file.name, uploaded_at: new Date().toISOString() });
             await DB.insert('mutasi_bank', p.rows.map(r => Object.assign({ periode_id: row.id }, r)));
           }
           await loadMutasi(true);
           f.rek = ok[0].meta.rek; f.per = (S.mut.per.find(x => x.no_rekening === f.rek && x.periode === ok.map(p => p.periode).sort().pop()) || {}).id || '';
-          toast(`${ok.length} periode mutasi tersimpan`); rerender();
-        } catch (err) { toast('Gagal menyimpan: ' + err.message, true); ev.target.disabled = false; ev.target.textContent = `Simpan ${ok.length} periode`; }
+          S._mutSaving = false; toast(`${ok.length} periode mutasi tersimpan`); rerender();
+        } catch (err) { S._mutSaving = false; toast('Gagal menyimpan: ' + err.message, true); ev.target.disabled = false; ev.target.textContent = `Simpan ${ok.length} periode`; }
       };
     };
   }
