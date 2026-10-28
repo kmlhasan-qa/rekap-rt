@@ -478,7 +478,7 @@
     const dompetOpts = (sel, filter) => S.d.dompet.filter(w => (w.aktif || w.id === sel) && (!filter || filter(w)))
       .map(w => opt(w.id, w.jenis === 'rekening' ? `Transfer (${w.nama})` : w.nama, w.id === sel)).join('');
     const tgl = ex ? ex.tanggal : (S.lastTgl || todayISO());
-    const defDompet = ex ? ex.dompet_id : (S.lastDompet || (S.d.dompet[0] || {}).id);
+    const defDompet = ex ? ex.dompet_id : (S.lastDompet || (S.d.dompet.find(w => w.jenis === 'rekening' && /mandiri/i.test(w.nama)) || S.d.dompet[0] || {}).id);
     let html = `<form id="trxForm"><div class="form-grid">
       <label>Tanggal<input type="date" name="tanggal" required value="${tgl}"></label>`;
     if (tipe === 'iuran') {
@@ -740,10 +740,12 @@
     $$('[data-met]', el).forEach(s2 => s2.onchange = () => { ov[s2.dataset.met].metode = s2.value; rerender(); });
     $$('[data-visit]', el).forEach(c => c.onchange = () => { const [mid, vid] = c.dataset.visit.split('|'); ov[mid].vsel[vid] = c.checked; delete ov[mid].amount; rerender(); });
     $$('[data-vplus]', el).forEach(b => b.onclick = async () => {
+      if (b.disabled) return; b.disabled = true;
       const mid = b.dataset.vplus, vs = S.d.kedatangan_mitra.filter(v => v.mitra_id === mid && v.bulan === st.bulan);
       if (await run(async () => { await DB.insert('kedatangan_mitra', { id: uuid(), mitra_id: mid, bulan: st.bulan, ke: Math.max(0, ...vs.map(v => v.ke)) + 1, transaksi_id: null }); await reload('kedatangan_mitra'); })) { delete ov[mid].amount; rerender(); }
     });
     $$('[data-vminus]', el).forEach(b => b.onclick = async () => {
+      if (b.disabled) return; b.disabled = true;
       const mid = b.dataset.vminus, last = S.d.kedatangan_mitra.filter(v => v.mitra_id === mid && v.bulan === st.bulan).sort((a, c) => c.ke - a.ke)[0];
       if (!last || last.transaksi_id) return;
       if (await run(async () => { await DB.remove('kedatangan_mitra', last.id); await reload('kedatangan_mitra'); })) { delete ov[mid].amount; rerender(); }
