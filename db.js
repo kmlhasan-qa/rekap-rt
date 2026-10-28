@@ -78,7 +78,7 @@
       db.audit_log.unshift({ id: Date.now() + Math.random(), waktu: new Date().toISOString(), user_id: me && me.id, aksi, tabel: 'transaksi', data_lama: lama, data_baru: baru });
       db.audit_log = db.audit_log.slice(0, 500);
     };
-    const adminOnly = ['rumah_rekening', 'hutang_mitra', 'kedatangan_mitra', 'catatan', 'audit_log', 'profiles', 'mutasi_periode', 'mutasi_bank'];
+    const adminOnly = ['rumah_rekening', 'hutang_mitra', 'kedatangan_mitra', 'catatan', 'audit_log', 'profiles'];
     const guard = () => { if (!me || me.role !== 'admin') throw new Error('Hanya admin yang boleh mengubah data.'); };
 
     function seed() {
@@ -231,7 +231,6 @@
         db[t] = db[t].filter(x => x[k] !== id);
         if (t === 'transaksi') { db.iuran_bulan = db.iuran_bulan.filter(x => x.transaksi_id !== id); audit('DELETE', row, null); }
         if (t === 'rumah') db.rumah_rekening = db.rumah_rekening.filter(x => x.rumah_id !== id);
-        if (t === 'mutasi_periode') db.mutasi_bank = (db.mutasi_bank || []).filter(x => x.periode_id !== id);
         save();
       },
       async removeWhere(t, col, val) { guard(); db[t] = db[t].filter(x => x[col] !== val); save(); },

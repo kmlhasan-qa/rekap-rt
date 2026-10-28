@@ -292,10 +292,3 @@ body.ro [data-nama], body.ro [data-akt], body.ro #resetDemo { display: none !imp
 td, th { overflow-wrap: anywhere; }
 td.num, th.num { overflow-wrap: normal; white-space: nowrap; }
 
-/* Mutasi bank */
-.stmt-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px 16px; }
-.stmt-meta > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
-table.stmt td { vertical-align: top; }
-table.stmt td.ket { min-width: 220px; max-width: 420px; line-height: 1.4; }
-.nowrap { white-space: nowrap; }
-@media (max-width: 700px) { table.stmt td.ket { min-width: 180px; font-size: 12.5px; } }
