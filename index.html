@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rekap Keuangan RT</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- Layar login -->
+  <section id="login" class="login hidden">
+    <form id="loginForm" class="login-card">
+      <h1 id="loginTitle">Rekap Keuangan RT</h1>
+      <p class="muted" id="loginSub">Masuk untuk melihat laporan keuangan.</p>
+      <div id="loginReal">
+        <label>Email<input type="email" name="email" required autocomplete="username"></label>
+        <label>Password<input type="password" name="password" required autocomplete="current-password"></label>
+        <button class="btn primary block" type="submit">Masuk</button>
+      </div>
+      <div id="loginDemo" class="hidden">
+        <p class="demo-note">Mode demo: belum terhubung ke Supabase. Data contoh tersimpan di browser ini saja.</p>
+        <button class="btn primary block" type="button" id="demoLogin">Masuk</button>
+      </div>
+      <p id="loginError" class="error"></p>
+    </form>
+  </section>
+
+  <!-- Aplikasi -->
+  <div id="app" class="hidden">
+    <aside id="sidebar" class="sidebar">
+      <div class="brand" id="brandName">Rekap Keuangan RT</div>
+      <nav id="nav"></nav>
+      <div class="sidebar-foot">
+        <div id="userInfo" class="muted small"></div>
+        <button id="logoutBtn" class="btn small">Keluar</button>
+      </div>
+    </aside>
+    <div class="backdrop" id="backdrop"></div>
+    <main class="main">
+      <header class="topbar">
+        <button id="menuBtn" class="icon-btn" aria-label="Menu">&#9776;</button>
+        <h2 id="pageTitle"></h2>
+        <span id="demoBadge" class="badge warn hidden">DEMO</span>
+      </header>
+      <div id="view" class="view"></div>
+    </main>
+    <nav id="bottomNav" class="bottom-nav" aria-label="Navigasi utama"></nav>
+  </div>
+
+  <div id="modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-box">
+      <div class="modal-head"><h3 id="modalTitle"></h3><button class="icon-btn" id="modalClose" aria-label="Tutup">&times;</button></div>
+      <div id="modalBody" class="modal-body"></div>
+    </div>
+  </div>
+  <div id="toast" class="toast"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+  <script>window.APP_MODE = 'warga';</script>
+  <script src="js/config.js"></script>
+  <script src="js/db.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
