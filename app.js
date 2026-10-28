@@ -129,6 +129,7 @@
   function years() {
     const ys = new Set([new Date().getFullYear()]);
     S.d.transaksi.forEach(t => ys.add(+t.tanggal.slice(0, 4)));
+    const man = ringkasanSheet(); if (man) Object.keys(man.bulan).forEach(k => ys.add(+k.slice(0, 4)));
     return [...ys].sort((a, b) => b - a);
   }
   const yearSelect = () => `<label>Tahun<select id="fYear">${years().map(y => opt(y, y, y === S.year)).join('')}</select></label>`;
@@ -202,48 +203,68 @@
   const rerender = () => route();
 
   // ---------- Ringkasan
-  function pgDashboard(el) {
-    const y = S.year, start = `${y}-01-01`, end = `${y + 1}-01-01`;
-    const kasAwal = totalKas(start);
-    const lastM = y === new Date().getFullYear() ? new Date().getMonth() + 1 : (y > new Date().getFullYear() ? 0 : 12);
-    let saldoRun = kasAwal;
-    const rows = monthsOfYear(y).map((ym, i) => {
+  // Bulan s.d. "cutoff" memakai angka tab Ringkasan sheet lama (disimpan di pengaturan 'ringkasan_sheet');
+  // bulan sesudahnya dihitung dari transaksi aplikasi.
+  function ringkasanSheet() { try { const r = JSON.parse(setting('ringkasan_sheet') || 'null'); return r && r.bulan ? r : null; } catch (e) { return null; } }
+  function ringkasanTahun(y) {
+    const man = ringkasanSheet(), mb = man ? man.bulan : {}, cutoff = man ? man.cutoff : '';
+    const nowY = new Date().getFullYear(), lastM = y === nowY ? new Date().getMonth() + 1 : (y > nowY ? 0 : 12);
+    const rows = [];
+    monthsOfYear(y).slice(0, lastM).forEach(ym => {
+      if (cutoff && ym <= cutoff) {
+        const m = mb[ym]; if (!m) return;
+        rows.push({ ym, sheet: true, masuk: m.masuk, keluar: m.keluar, selisih: m.selisih != null ? m.selisih : m.masuk - m.keluar, saldo: m.saldo });
+        return;
+      }
       const tx = S.d.transaksi.filter(t => t.tanggal.slice(0, 7) === ym);
-      const iuran = sum(tx.filter(t => t.tipe === 'iuran'), t => t.nilai);
-      const non = sum(tx.filter(t => t.tipe === 'pemasukan'), t => t.nilai);
-      const out = tx.filter(t => t.tipe === 'pengeluaran');
-      const keluar = sum(out, t => t.nilai);
-      saldoRun += iuran + non - keluar;
-      return { ym, iuran, non, masuk: iuran + non, keluar, selisih: iuran + non - keluar, saldo: saldoRun, show: i < lastM };
+      const iuran = sum(tx.filter(t => t.tipe === 'iuran'), t => t.nilai), non = sum(tx.filter(t => t.tipe === 'pemasukan'), t => t.nilai);
+      const keluar = sum(tx.filter(t => t.tipe === 'pengeluaran'), t => t.nilai);
+      rows.push({ ym, sheet: false, iuran, non, masuk: iuran + non, keluar, selisih: iuran + non - keluar, saldo: totalKas(ymAdd(ym, 1) + '-01') });
     });
-    const shown = rows.filter(r => r.show);
-    const kasAkhir = totalKas(end);
+    return rows;
+  }
+  function kasAwalTahun(y) {
+    const man = ringkasanSheet(), prev = `${y - 1}-12`;
+    if (man && man.kasAwal && man.kasAwal[y] != null) return man.kasAwal[y];
+    if (man && man.bulan[`${y}-01`] && `${y}-01` <= man.cutoff) return null;
+    if (man && man.bulan[prev] && prev <= man.cutoff && man.bulan[prev].saldo != null) return man.bulan[prev].saldo;
+    const first = ringkasanTahun(y)[0];
+    if (first && first.sheet) return first.saldo != null ? first.saldo - first.selisih : null;
+    return totalKas(`${y}-01-01`);
+  }
+  function pgDashboard(el) {
+    const y = S.year;
+    const kasAwal = kasAwalTahun(y);
+    const shown = ringkasanTahun(y);
+    const isNowY = y === new Date().getFullYear();
+    const kasAkhir = isNowY || !shown.length ? totalKas() : shown[shown.length - 1].saldo;
+    const rpx = v => v == null ? '—' : rp(v);
     const rek = sum(S.d.dompet.filter(w => w.jenis === 'rekening'), w => saldo(w.id));
     const tunai = sum(S.d.dompet.filter(w => w.jenis === 'tunai'), w => saldo(w.id));
     const isNow = y === new Date().getFullYear(), adm = isAdmin();
     el.innerHTML = `
       <div class="toolbar">${yearSelect()}<span class="spacer"></span>${framed ? '' : '<button class="btn desk-only" id="printBtn">Print</button>'}</div>
       <div class="cards">
-        <div class="card"><div class="label">Kas awal ${y}</div><div class="value">${rp(kasAwal)}</div></div>
-        <div class="card"><div class="label">${isNow ? 'Kas berjalan' : 'Kas akhir ' + y}</div><div class="value">${rp(kasAkhir)}</div></div>
+        <div class="card"><div class="label">Kas awal ${y}</div><div class="value">${rpx(kasAwal)}</div></div>
+        <div class="card"><div class="label">${isNow ? 'Kas berjalan' : 'Kas akhir ' + y}</div><div class="value">${rpx(kasAkhir)}</div></div>
         <div class="card"><div class="label">Saldo rekening (saat ini)</div><div class="value">${rp(rek)}</div></div>
         <div class="card"><div class="label">Saldo tunai (saat ini)</div><div class="value">${rp(tunai)}</div></div>
       </div>
       <div class="panel"><h3>Pemasukan vs pengeluaran ${y}</h3><div class="chart-box"><canvas id="chart"></canvas></div></div>
       <div class="mlist">${shown.slice().reverse().map(r => `<div class="mitem">
           <div class="mhead"><b>${fmtBulan(r.ym)}</b><span class="${r.selisih < 0 ? 'neg' : 'pos'}">${r.selisih > 0 ? '+' : ''}${rp(r.selisih)}</span></div>
-          <div class="mrow"><span>Iuran</span><span>${rp(r.iuran)}</span></div>
-          <div class="mrow"><span>Non-iuran</span><span>${rp(r.non)}</span></div>
+          <div class="mrow"><span>Pemasukan</span><span>${rp(r.masuk)}</span></div>
           <div class="mrow"><span>Pengeluaran</span><span>${rp(r.keluar)}</span></div>
-          <div class="mrow strong"><span>Saldo akhir</span><span>${rp(r.saldo)}</span></div>
+          ${r.saldo == null ? '' : `<div class="mrow strong"><span>Saldo akhir</span><span>${rp(r.saldo)}</span></div>`}
           </div>`).join('') || '<div class="empty">Belum ada data</div>'}</div>
       <div class="table-wrap desk-only"><table>
-        <thead><tr><th>Bulan</th><th class="num">Iuran</th><th class="num">Non-iuran</th><th class="num">Total masuk</th><th class="num">Pengeluaran</th><th class="num">Selisih</th><th class="num">Saldo akhir</th></tr></thead>
-        <tbody>${shown.map(r => `<tr><td>${fmtBulan(r.ym)}</td><td class="num">${rp(r.iuran)}</td><td class="num">${rp(r.non)}</td><td class="num">${rp(r.masuk)}</td>
-          <td class="num">${rp(r.keluar)}</td><td class="num ${r.selisih < 0 ? 'neg' : 'pos'}">${rp(r.selisih)}</td><td class="num">${rp(r.saldo)}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">Belum ada data</td></tr>'}</tbody>
-        <tfoot><tr class="total"><td>Total</td><td class="num">${rp(sum(shown, r => r.iuran))}</td><td class="num">${rp(sum(shown, r => r.non))}</td><td class="num">${rp(sum(shown, r => r.masuk))}</td>
+        <thead><tr><th>Bulan</th><th class="num">Pemasukan</th><th class="num">Pengeluaran</th><th class="num">Selisih</th><th class="num">Saldo akhir</th></tr></thead>
+        <tbody>${shown.map(r => `<tr><td>${fmtBulan(r.ym)}</td><td class="num">${rp(r.masuk)}</td>
+          <td class="num">${rp(r.keluar)}</td><td class="num ${r.selisih < 0 ? 'neg' : 'pos'}">${rp(r.selisih)}</td><td class="num">${rpx(r.saldo)}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">Belum ada data</td></tr>'}</tbody>
+        <tfoot><tr class="total"><td>Total</td><td class="num">${rp(sum(shown, r => r.masuk))}</td>
           <td class="num">${rp(sum(shown, r => r.keluar))}</td><td class="num">${rp(sum(shown, r => r.selisih))}</td><td class="num"></td></tr></tfoot>
       </table></div>
+      ${shown.some(r => r.sheet) ? `<p class="hint" style="margin-top:8px">Angka s.d. ${fmtBulan(ringkasanSheet().cutoff)} diambil dari Ringkasan Google Sheet lama.</p>` : ''}
       ${adm ? `<div class="panel" style="margin-top:18px"><h3>Saldo per dompet (saat ini)</h3><div class="table-wrap"><table><tbody>
         ${S.d.dompet.map(w => `<tr><td>${esc(w.nama)} <span class="badge">${w.jenis}</span></td><td class="num">${rp(saldo(w.id))}</td></tr>`).join('')}
       </tbody></table></div></div>` : ''}`;
@@ -1385,16 +1406,10 @@
     const sep = (txt, span) => [{ content: txt, colSpan: span, styles: { fillColor: soft, textColor: green, fontStyle: 'bold' } }];
 
     // 1. Ringkasan
-    let saldoRun = totalKas(`${y}-01-01`);
-    const lastM = y === new Date().getFullYear() ? new Date().getMonth() + 1 : (y > new Date().getFullYear() ? 0 : 12);
-    const ring = ms.slice(0, lastM).map(m => {
-      const a = S.d.transaksi.filter(t => t.tanggal.slice(0, 7) === m);
-      const i = sum(a.filter(t => t.tipe === 'iuran'), t => t.nilai), n = sum(a.filter(t => t.tipe === 'pemasukan'), t => t.nilai), k = sum(a.filter(t => t.tipe === 'pengeluaran'), t => t.nilai);
-      saldoRun += i + n - k; return [fmtBulan(m), i, n, i + n, k, i + n - k, saldoRun];
-    });
-    section(`Ringkasan ${y} (kas awal Rp${R(totalKas(`${y}-01-01`))})`, ['Bulan', 'Iuran', 'Non-iuran', 'Total masuk', 'Pengeluaran', 'Selisih', 'Saldo akhir'],
-      ring.map(r => [r[0], ...r.slice(1).map(right)]),
-      { foot: [['Total', ...[1, 2, 3, 4, 5].map(i => right(sum(ring, r => r[i]))), '']] });
+    const ring = ringkasanTahun(y);
+    section(`Ringkasan ${y}${kasAwalTahun(y) != null ? ` (kas awal Rp${R(kasAwalTahun(y))})` : ''}`, ['Bulan', 'Pemasukan', 'Pengeluaran', 'Selisih', 'Saldo akhir'],
+      ring.map(r => [fmtBulan(r.ym), right(r.masuk), right(r.keluar), right(r.selisih), right(r.saldo)]),
+      { foot: [['Total', right(sum(ring, r => r.masuk)), right(sum(ring, r => r.keluar)), right(sum(ring, r => r.selisih)), '']] });
 
     // 2. Rekap pengeluaran per bulan
     const px = S.d.transaksi.filter(t => t.tipe === 'pengeluaran' && ms.includes(bm(t)));
@@ -1445,10 +1460,8 @@
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Tanggal', 'Tipe', 'Rumah', 'Bulan', 'Kategori', 'Mitra', 'Keterangan', 'Dompet', 'Dompet tujuan', 'Nilai'],
       ...tx.map(t => [t.tanggal, TIPE_LABEL[t.tipe], t.rumah_id ? rumahLabel(get('rumah', t.rumah_id)) : '', t.tipe === 'iuran' ? (S.iuranByTrx.get(t.id) || []).map(b => fmtBulan(b.bulan)).join(', ') : fmtBulan(t.bulan),
         (get('kategori', t.kategori_id) || {}).nama || '', (get('mitra', t.mitra_id) || {}).nama || '', t.keterangan || '', (get('dompet', t.dompet_id) || {}).nama || '', (get('dompet', t.dompet_tujuan_id) || {}).nama || '', t.nilai])]), 'Transaksi');
-    let saldoRun = totalKas(`${y}-01-01`);
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Bulan', 'Iuran', 'Non-iuran', 'Pengeluaran', 'Selisih', 'Saldo akhir'], ...ms.map(m => {
-      const a = tx.filter(t => t.tanggal.slice(0, 7) === m); const i = sum(a.filter(t => t.tipe === 'iuran'), t => t.nilai), n = sum(a.filter(t => t.tipe === 'pemasukan'), t => t.nilai), k = sum(a.filter(t => t.tipe === 'pengeluaran'), t => t.nilai);
-      saldoRun += i + n - k; return [fmtBulan(m), i, n, k, i + n - k, saldoRun]; })]), 'Ringkasan');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Bulan', 'Pemasukan', 'Pengeluaran', 'Selisih', 'Saldo akhir'],
+      ...ringkasanTahun(y).map(r => [fmtBulan(r.ym), r.masuk, r.keluar, r.selisih, r.saldo])]), 'Ringkasan');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Rumah', 'Grup', 'IPL', ...ms.map(fmtBulan), 'Tunggakan (bln)', 'Total tunggakan'],
       ...S.d.rumah.map(r => { const tg = tunggakan(r); return [rumahLabel(r), r.grup || '', r.ipl, ...ms.map(m => S.paid.get(r.id + '|' + m) || 0), tg.bulan.length, tg.total]; })]), 'Rekap Bayar');
     const pk = S.d.transaksi.filter(t => t.tipe === 'pengeluaran' && ms.includes(t.bulan || t.tanggal.slice(0, 7)));
