@@ -328,19 +328,16 @@
   // ---------- Rekap bayar
   function pgBayar(el) {
     const adm = isAdmin();
-    const f = S.fBayar || (S.fBayar = { grup: '', q: '', min: 0 });
-    const grups = [...new Set(S.d.rumah.map(r => r.grup).filter(Boolean))];
+    const f = S.fBayar || (S.fBayar = { q: '', min: 0 });
     const ms = monthsOfYear(S.year);
     const rumah = S.d.rumah.filter(r => r.aktif || ms.some(m => S.paid.get(r.id + '|' + m)))
-      .filter(r => !adm || !f.grup || r.grup === f.grup)
       .filter(r => !f.q || rumahLabel(r).toLowerCase().includes(f.q.toLowerCase()))
       .map(r => ({ r, tg: adm ? tunggakan(r) : null }))
       .filter(x => !adm || x.tg.bulan.length >= f.min);
     const sym = { paid: '✓', partial: '½', unpaid: '✗', future: '·' };
         el.innerHTML = `
       <div class="toolbar">${yearSelect()}
-        ${adm ? `<label>Grup<select id="fGrup">${opt('', 'Semua')}${grups.map(g => opt(g, g, g === f.grup)).join('')}</select></label>
-        <label>Menunggak ≥<select id="fMin">${[0, 1, 2, 3, 6].map(n => opt(n, n === 0 ? 'Semua' : n + ' bulan', n === f.min)).join('')}</select></label>` : ''}
+        ${adm ? `<label>Menunggak ≥<select id="fMin">${[0, 1, 2, 3, 6].map(n => opt(n, n === 0 ? 'Semua' : n + ' bulan', n === f.min)).join('')}</select></label>` : ''}
         <label>Cari<input id="fQ" value="${esc(f.q)}" placeholder="Kode / nama"></label>
       </div>
       <div class="legend"><span class="l-paid">Lunas</span>${adm ? '<span class="l-partial">Sebagian</span>' : ''}<span class="l-unpaid">Belum</span><span class="l-future">Belum jatuh tempo</span></div>
@@ -359,7 +356,6 @@
       </table></div>`;
     bindYear(el, rerender);
     if (adm) {
-      $('#fGrup', el).onchange = e => { f.grup = e.target.value; rerender(); };
       $('#fMin', el).onchange = e => { f.min = +e.target.value; rerender(); };
     }
     $('#fQ', el).onchange = e => { f.q = e.target.value; rerender(); };
@@ -935,8 +931,8 @@
   const MASTER = {
     rumah: {
       label: 'Rumah / Warga', table: 'rumah',
-      cols: [['kode', 'Kode'], ['nama', 'Nama'], ['grup', 'Grup'], ['blok', 'Blok'], ['ipl', 'IPL', rp], ['aktif', 'Aktif', v => v ? 'Ya' : 'Tidak'], ['_bank', 'Rekening', (v, r) => { const x = get('rumah_rekening', r.id); return x ? esc([x.bank, x.nama_rekening].filter(Boolean).join(' · ')) : ''; }]],
-      fields: [['kode', 'Kode rumah (mis. KB1/26)', 'text', true], ['nama', 'Nama penghuni'], ['grup', 'Grup (mis. KB Lama)'], ['blok', 'Blok (mis. KB1)'], ['ipl', 'IPL per bulan', 'money'], ['aktif', 'Aktif', 'bool'],
+      cols: [['kode', 'Kode'], ['nama', 'Nama'], ['blok', 'Blok'], ['ipl', 'IPL', rp], ['aktif', 'Aktif', v => v ? 'Ya' : 'Tidak'], ['_bank', 'Rekening', (v, r) => { const x = get('rumah_rekening', r.id); return x ? esc([x.bank, x.nama_rekening].filter(Boolean).join(' · ')) : ''; }]],
+      fields: [['kode', 'Kode rumah (mis. KB1/26)', 'text', true], ['nama', 'Nama penghuni'], ['blok', 'Blok (mis. KB1)'], ['ipl', 'IPL per bulan', 'money'], ['aktif', 'Aktif', 'bool'],
         ['bank', 'Bank pengirim', 'text', false, 'rek'], ['nama_rekening', 'Nama di rekening', 'text', false, 'rek'], ['no_hp', 'No. HP / WA', 'text', false, 'rek']],
     },
     kategori: { label: 'Kategori Pengeluaran', table: 'kategori', cols: [['nama', 'Nama'], ['urutan', 'Urutan']], fields: [['nama', 'Nama kategori', 'text', true], ['urutan', 'Urutan', 'number']] },
@@ -1538,8 +1534,8 @@
         (get('kategori', t.kategori_id) || {}).nama || '', (get('mitra', t.mitra_id) || {}).nama || '', t.keterangan || '', (get('dompet', t.dompet_id) || {}).nama || '', (get('dompet', t.dompet_tujuan_id) || {}).nama || '', t.nilai])]), 'Transaksi');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Bulan', 'Pemasukan', 'Pengeluaran', 'Selisih', 'Saldo akhir'],
       ...ringkasanTahun(y).map(r => [fmtBulan(r.ym), r.masuk, r.keluar, r.selisih, r.saldo])]), 'Ringkasan');
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Rumah', 'Grup', 'IPL', ...ms.map(fmtBulan), 'Tunggakan (bln)', 'Total tunggakan'],
-      ...S.d.rumah.map(r => { const tg = tunggakan(r); return [rumahLabel(r), r.grup || '', r.ipl, ...ms.map(m => S.paid.get(r.id + '|' + m) || 0), tg.bulan.length, tg.total]; })]), 'Rekap Bayar');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Rumah', 'IPL', ...ms.map(fmtBulan), 'Tunggakan (bln)', 'Total tunggakan'],
+      ...S.d.rumah.map(r => { const tg = tunggakan(r); return [rumahLabel(r), r.ipl, ...ms.map(m => S.paid.get(r.id + '|' + m) || 0), tg.bulan.length, tg.total]; })]), 'Rekap Bayar');
     const pk = S.d.transaksi.filter(t => t.tipe === 'pengeluaran' && ms.includes(t.bulan || t.tanggal.slice(0, 7)));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Kategori', ...ms.map(fmtBulan), 'Total'],
       ...S.d.kategori.map(k => { const v = ms.map(m => sum(pk.filter(t => t.kategori_id === k.id && (t.bulan || t.tanggal.slice(0, 7)) === m), t => t.nilai)); return [k.nama, ...v, sum(v)]; })]), 'Pengeluaran');
