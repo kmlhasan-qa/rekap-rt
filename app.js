@@ -664,6 +664,30 @@
     clear.onclick = () => { pick(null); input.focus(); };
   }
 
+  // Kasbon mitra yang dipotong dari gaji: uang keluar di tanggal kasbon, tetapi PENGELUARAN dibebankan
+  // per bulan cicilan (satu baris pengeluaran per cicilan), dan jadwal cicilan dibuat di Hutang Mitra.
+  function kasbonPlan({ mitraId, tanggal, total, n, mulai, dompetId, ket, catat }) {
+    const m = get('mitra', mitraId), nama = m ? m.nama : 'mitra';
+    const katRef = S.d.transaksi.find(t => /^Pinjaman\/dibayar dimuka/i.test(t.keterangan || '') && t.kategori_id);
+    const kat = (katRef && get('kategori', katRef.kategori_id)) || S.d.kategori.find(k => /kasbon/i.test(k.nama)) || S.d.kategori.find(k => /gaji/i.test(k.nama));
+    n = Math.max(1, Math.floor(n || 1));
+    const per = Math.floor(total / n / 1000) * 1000 || Math.floor(total / n);
+    const txs = [], huts = [];
+    for (let i = 0; i < n; i++) {
+      const nominal = i === n - 1 ? Math.round((total - per * (n - 1)) * 100) / 100 : per, bulan = ymAdd(mulai, i), txId = catat ? uuid() : null;
+      if (catat) txs.push({ id: txId, tipe: 'pengeluaran', tanggal, nilai: nominal, dompet_id: dompetId, dompet_tujuan_id: null, kategori_id: kat ? kat.id : null,
+        rumah_id: null, mitra_id: null, komponen: null, bulan, keterangan: `Pinjaman/dibayar dimuka ke ${nama}: ${ket || 'Kasbon'} ${rp(total)}, pembayaran ke-${i + 1}` });
+      huts.push({ id: uuid(), mitra_id: mitraId, keterangan: `${ket || 'Kasbon'} ${nama} ${rp(total)} (${fmtTgl(tanggal)})`, bulan, cicilan_ke: i + 1, nominal, lunas: false, sumber_id: txId });
+    }
+    return { txs, huts, per, kat };
+  }
+  async function simpanKasbon(o) {
+    const { txs, huts } = kasbonPlan(o);
+    if (txs.length) await DB.insert('transaksi', txs);
+    await DB.insert('hutang_mitra', huts);
+    await reload('transaksi', 'hutang_mitra');
+  }
+
   function trxForm(box, tipe, ex, done) {
     const dompetOpts = (sel, filter) => S.d.dompet.filter(w => (w.aktif || w.id === sel) && (!filter || filter(w)))
       .map(w => opt(w.id, w.jenis === 'rekening' ? `Transfer (${w.nama})` : w.nama, w.id === sel)).join('');
@@ -695,7 +719,12 @@
         <label>Dibayar dari<select name="dompet_id">${dompetOpts(defDompet)}</select></label>
         <label>Bulan pembebanan<input type="month" name="bulan" required value="${ex ? ex.bulan || '' : tgl.slice(0, 7)}"></label>
         <label>Mitra (opsional)<select name="mitra_id">${opt('', '— bukan untuk mitra —')}${S.d.mitra.filter(m => m.aktif || (ex && ex.mitra_id === m.id)).map(m => opt(m.id, `${m.nama} (${m.posisi || ''})`, ex && ex.mitra_id === m.id)).join('')}</select></label>
-        <label>Komponen<select name="komponen">${opt('', '—')}${Object.keys(KOMPONEN).map(k => opt(k, KOMPONEN[k], ex && ex.komponen === k)).join('')}</select></label>`;
+        <label>Komponen<select name="komponen">${opt('', '—')}${Object.keys(KOMPONEN).map(k => opt(k, KOMPONEN[k], ex && ex.komponen === k)).join('')}</select></label>
+        ${ex ? '' : `<div id="kasbonBox" class="kasbon-box hidden" style="grid-column:1/-1">
+          <label class="check inline"><input type="checkbox" name="kb_cicil" checked> Dipotong dari gaji (dicicil)</label>
+          <div class="form-grid kb-fields"><label>Jumlah cicilan<input type="number" name="kb_n" min="1" max="60" value="1"></label>
+            <label>Mulai dipotong bulan<input type="month" name="kb_mulai" value="${tgl.slice(0, 7)}"></label></div>
+          <p class="hint" id="kbInfo"></p></div>`}`;
     } else {
       const grouped = sel => ['rekening', 'tunai'].map(j => `<optgroup label="${j === 'rekening' ? 'Rekening bank' : 'Tunai'}">${S.d.dompet.filter(w => w.jenis === j && (w.aktif || w.id === sel)).map(w => opt(w.id, w.nama, w.id === sel)).join('')}</optgroup>`).join('');
       const rekList = S.d.dompet.filter(w => w.jenis === 'rekening' && w.aktif);
@@ -766,6 +795,23 @@
       syncNilai();
     }
     if (tipe === 'pemasukan' || tipe === 'pengeluaran') form.tanggal.addEventListener('change', () => { if (!ex) form.bulan.value = form.tanggal.value.slice(0, 7); });
+    const kbBox = $('#kasbonBox', box);
+    const isKasbon = () => !!kbBox && form.komponen.value === 'kasbon' && !!form.mitra_id.value;
+    const kbSync = () => {
+      if (!kbBox) return;
+      kbBox.classList.toggle('hidden', !isKasbon());
+      const on = isKasbon() && form.kb_cicil.checked;
+      $('.kb-fields', kbBox).classList.toggle('hidden', !on);
+      if (!on) { $('#kbInfo', kbBox).textContent = isKasbon() ? 'Kasbon dicatat sebagai pengeluaran penuh di bulan pembebanan.' : ''; return; }
+      const total = parseRp(form.nilai.value), n = Math.max(1, +form.kb_n.value || 1), mulai = form.kb_mulai.value;
+      if (!total || !mulai) { $('#kbInfo', kbBox).textContent = 'Isi nilai kasbon untuk melihat pembagian cicilan.'; return; }
+      const { per } = kasbonPlan({ mitraId: form.mitra_id.value, tanggal: form.tanggal.value, total, n, mulai, catat: false });
+      const last = Math.round((total - per * (n - 1)) * 100) / 100;
+      $('#kbInfo', kbBox).textContent = `Uang keluar ${fmtTgl(form.tanggal.value)} sebesar ${rp(total)}. Pengeluaran dibebankan ${n} bulan (${fmtBulan(mulai)}${n > 1 ? ' – ' + fmtBulan(ymAdd(mulai, n - 1)) : ''}): ${n > 1 && last !== per ? `${n - 1} × ${rp(per)} + ${rp(last)}` : `${n} × ${rp(per)}`}, dan dipotong dari gaji bulan yang sama.`;
+    };
+    if (kbBox) { let kbTouched = false; form.kb_mulai.addEventListener('input', () => { kbTouched = true; });
+      form.tanggal.addEventListener('change', () => { if (!kbTouched && form.tanggal.value) form.kb_mulai.value = form.tanggal.value.slice(0, 7); });
+      ['komponen', 'mitra_id', 'kb_cicil', 'kb_n', 'kb_mulai', 'nilai', 'tanggal'].forEach(k => { form[k].addEventListener('change', kbSync); form[k].addEventListener('input', kbSync); }); kbSync(); }
 
     form.onsubmit = async e => {
       e.preventDefault();
@@ -793,6 +839,12 @@
       }
       if (tipe === 'pengeluaran') { row.kategori_id = fd.kategori_id || null; row.mitra_id = fd.mitra_id || null; row.komponen = fd.mitra_id ? (fd.komponen || 'gaji') : (fd.komponen || null); }
       if (tipe === 'mutasi') { row.dompet_tujuan_id = fd.dompet_tujuan_id; if (row.dompet_tujuan_id === row.dompet_id) return warn('Dompet asal dan tujuan tidak boleh sama.'); }
+      if (!ex && tipe === 'pengeluaran' && isKasbon() && form.kb_cicil.checked) {
+        if (!fd.kb_mulai) return warn('Isi bulan mulai dipotong.');
+        const ok2 = await run(() => simpanKasbon({ mitraId: row.mitra_id, tanggal: row.tanggal, total: row.nilai, n: +fd.kb_n || 1, mulai: fd.kb_mulai, dompetId: row.dompet_id, ket: row.keterangan || 'Kasbon', catat: true }), 'Kasbon & jadwal cicilan disimpan');
+        if (!ok2) return;
+        S.lastTgl = row.tanggal; S.lastDompet = row.dompet_id; trxForm(box, tipe, null, done); done && done(); return;
+      }
       const ok = await run(async () => {
         let id;
         if (ex) { id = ex.id; await DB.update('transaksi', id, row); if (tipe === 'iuran') await DB.removeWhere('iuran_bulan', 'transaksi_id', id); }
@@ -1149,7 +1201,7 @@
         <label>Mitra<select id="hMitra">${opt('', 'Semua mitra')}${mitraIds.map(id => opt(id, mName(id === '-' ? null : id), id === f.mitra)).join('')}</select></label>
         <label class="check inline" style="align-self:end"><input type="checkbox" id="hLunas" ${f.lunas ? 'checked' : ''}> Tampilkan cicilan lunas</label>
         <span class="spacer"></span>
-        <button class="btn rw" id="addOne">+ Tambah cicilan</button><button class="btn primary rw" id="addPlan">+ Buat jadwal cicilan</button>
+        <button class="btn rw" id="addOne">+ Tambah cicilan</button><button class="btn primary rw" id="addPlan">+ Kasbon baru</button>
       </div>
       ${keys.map(k => { const list = groups[k]; let ak = 0;
         const total = sum(list, h => h.nominal), lunas = sum(list.filter(h => h.lunas), h => h.nominal), nL = list.filter(h => h.lunas).length;
@@ -1180,15 +1232,29 @@
       $('#hf', body).onsubmit = async e => { e.preventDefault(); const fd = Object.fromEntries(new FormData(e.target));
         if (await run(async () => { await DB.insert('hutang_mitra', { id: uuid(), mitra_id: fd.mitra_id || null, keterangan: fd.keterangan, bulan: fd.bulan, cicilan_ke: +fd.cicilan_ke || null, nominal: parseRp(fd.nominal), lunas: false }); await reload('hutang_mitra'); }, 'Disimpan')) { closeModal(); rerender(); } };
     });
-    $('#addPlan', el).onclick = () => openModal('Buat jadwal cicilan', `<form id="hp"><div class="form-grid">
-        <label>Mitra<select name="mitra_id">${mitraOpts}</select></label><label>Keterangan<input name="keterangan" value="Cicilan pinjaman"></label>
-        <label>Nominal per cicilan<input name="nominal" data-money inputmode="decimal" required></label><label>Jumlah cicilan<input type="number" name="n" min="1" max="60" value="6"></label>
-        <label>Mulai bulan<input type="month" name="mulai" required value="${curYM()}"></label></div><div class="form-actions"><button class="btn primary">Buat</button></div></form>`, body => {
-      moneyInputs(body);
-      $('#hp', body).onsubmit = async e => { e.preventDefault(); const fd = Object.fromEntries(new FormData(e.target));
-        const rows = Array.from({ length: +fd.n }, (_, i) => ({ id: uuid(), mitra_id: fd.mitra_id || null, keterangan: fd.keterangan, bulan: ymAdd(fd.mulai, i), cicilan_ke: i + 1, nominal: parseRp(fd.nominal), lunas: false }));
-        if (await run(async () => { await DB.insert('hutang_mitra', rows); await reload('hutang_mitra'); }, 'Jadwal dibuat')) { closeModal(); rerender(); } };
-    });
+    $('#addPlan', el).onclick = () => {
+      const dom = S.d.dompet.filter(w => w.aktif), defD = (dom.find(w => w.jenis === 'rekening' && /mandiri/i.test(w.nama)) || dom[0] || {}).id;
+      openModal('Kasbon baru (dipotong dari gaji)', `<form id="hp"><div class="form-grid">
+        <label>Mitra<select name="mitra_id">${mitraOpts}</select></label><label>Keterangan<input name="keterangan" value="Kasbon"></label>
+        <label>Total kasbon<input name="total" data-money inputmode="decimal" required></label><label>Jumlah cicilan<input type="number" name="n" min="1" max="60" value="3"></label>
+        <label>Mulai dipotong bulan<input type="month" name="mulai" required value="${curYM()}"></label>
+        <label>Tanggal uang keluar<input type="date" name="tanggal" required value="${todayISO()}"></label>
+        <label>Dibayar dari<select name="dompet_id">${dom.map(w => opt(w.id, w.nama, w.id === defD)).join('')}</select></label></div>
+        <label class="check inline"><input type="checkbox" name="catat" checked> Catat sebagai pengeluaran (uang keluar dari kas)</label>
+        <p class="hint" id="hpInfo"></p>
+        <div class="form-actions"><button class="btn primary">Simpan kasbon</button></div></form>`, body => {
+        moneyInputs(body);
+        const f2 = $('#hp', body);
+        const info = () => { const total = parseRp(f2.total.value), n = Math.max(1, +f2.n.value || 1); if (!total || !f2.mulai.value) { $('#hpInfo', body).textContent = ''; return; }
+          const { per } = kasbonPlan({ mitraId: f2.mitra_id.value, tanggal: f2.tanggal.value, total, n, mulai: f2.mulai.value, catat: false }); const last = Math.round((total - per * (n - 1)) * 100) / 100;
+          $('#hpInfo', body).textContent = `${n > 1 && last !== per ? `${n - 1} × ${rp(per)} + ${rp(last)}` : `${n} × ${rp(per)}`} dipotong dari gaji ${fmtBulan(f2.mulai.value)}${n > 1 ? ' – ' + fmtBulan(ymAdd(f2.mulai.value, n - 1)) : ''}.`
+            + (f2.catat.checked ? ` Pengeluaran ikut dibagi per bulan cicilan; uang keluar dari kas pada ${fmtTgl(f2.tanggal.value)}.` : ' Hanya jadwal cicilan (tanpa pengeluaran), mis. untuk pinjaman lama.'); };
+        [...f2.elements].forEach(x => { x.addEventListener('input', info); x.addEventListener('change', info); }); info();
+        f2.onsubmit = async e => { e.preventDefault(); const fd = Object.fromEntries(new FormData(f2)); const total = parseRp(fd.total);
+          if (!total) return warn('Isi total kasbon.');
+          if (await run(() => simpanKasbon({ mitraId: fd.mitra_id, tanggal: fd.tanggal, total, n: +fd.n || 1, mulai: fd.mulai, dompetId: fd.dompet_id, ket: fd.keterangan, catat: !!fd.catat }), 'Kasbon disimpan')) { closeModal(); rerender(); } };
+      });
+    };
     $$('[data-lunas]', el).forEach(c => c.onchange = async () => { if (await run(async () => { await DB.update('hutang_mitra', c.dataset.lunas, c.checked ? { lunas: true } : { lunas: false, transaksi_id: null }); await reload('hutang_mitra'); })) rerender(); });
     $$('[data-del]', el).forEach(b => b.onclick = async () => { if (await ask('Hapus cicilan ini?') && await run(async () => { await DB.remove('hutang_mitra', b.dataset.del); await reload('hutang_mitra'); })) rerender(); });
   }

@@ -396,3 +396,5 @@ tr.picked td { background: transparent !important; }
   .bulk-bar.on { top: 52px; }
   .toolbar .check.inline { grid-column: 1 / -1; }
 }
+.kasbon-box { border: 1px dashed var(--primary); background: var(--primary-soft); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
+.kasbon-box .hint { margin: 4px 0 0; color: var(--text); }
