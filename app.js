@@ -467,14 +467,13 @@
     const agg = S.agg || { pot: new Map(), kd: new Map() };
     const a = S.d.transaksi.filter(t => t.tipe === 'pengeluaran' && t.mitra_id === mt.id && (t.bulan || t.tanggal.slice(0, 7)) === m);
     const k = mt.id + '|' + m;
-    const terbayar = sum(a.filter(t => !isLain(t)), t => t.nilai) + (agg.pot.get(k) || 0);
+    let terbayar = sum(a.filter(t => !isLain(t)), t => t.nilai) + (agg.pot.get(k) || 0);
     const lain = sum(a.filter(isLain), t => t.nilai);
     let gaji;
-    // Bulan s.d. September 2026 (periode sheet lama) dianggap sudah dibayar penuh sesuai yang tercatat,
-    // karena gaji pokok saat itu bisa berbeda dengan gaji pokok sekarang.
-    if (m <= '2026-09') gaji = terbayar;
-    else if (mt.jenis_gaji === 'kedatangan') gaji = agg.kd.has(k) ? agg.kd.get(k) * (Number(mt.gaji_pokok) || 0) : terbayar;
+    if (mt.jenis_gaji === 'kedatangan') gaji = agg.kd.has(k) ? agg.kd.get(k) * (Number(mt.gaji_pokok) || 0) : terbayar;
     else gaji = (a.length || agg.pot.has(k) || m === curYM()) ? Number(mt.gaji_pokok) || 0 : 0;
+    // Data lama (s.d. September 2026): gaji tetap memakai gaji pokok, dan dianggap sudah terbayar penuh
+    if (m <= '2026-09') terbayar = gaji;
     return { gaji, terbayar, belum: Math.max(0, gaji - terbayar), lain, total: terbayar + lain };
   }
   function pgGaji(el) {
