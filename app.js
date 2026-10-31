@@ -148,15 +148,16 @@
 
   function statusBulan(r, ym) {
     const paid = S.paid.get(r.id + '|' + ym) || 0;
-    if (r.ipl > 0 && paid >= r.ipl) return { s: 'paid', paid };
-    if (paid > 0) return { s: r.ipl > 0 && isAdmin() ? 'partial' : 'paid', paid };
+    const ipl = iplPada(r, ym);
+    if (ipl > 0 && paid >= ipl) return { s: 'paid', paid };
+    if (paid > 0) return { s: ipl > 0 && isAdmin() ? 'partial' : 'paid', paid };
     if (ym > curYM() || ym < mulaiTagih()) return { s: 'future', paid };
     return { s: 'unpaid', paid };
   }
   function tunggakan(r) {
     if (!r.aktif) return { bulan: [], total: 0 };
     const list = ymRange(mulaiTagih(), curYM()).map(ym => ({ ym, st: statusBulan(r, ym) })).filter(x => x.st.s === 'unpaid' || x.st.s === 'partial');
-    return { bulan: list.map(x => x.ym), total: sum(list, x => r.ipl - x.st.paid) };
+    return { bulan: list.map(x => x.ym), total: sum(list, x => iplPada(r, x.ym) - x.st.paid) };
   }
   function years() {
     const ys = new Set([new Date().getFullYear()]);
@@ -464,13 +465,18 @@
   //  belum    = gaji - terbayar;  lain = lembur, THR, lainnya;  total = terbayar + lain
   // Riwayat gaji pokok per mitra (disimpan di pengaturan 'gaji_riwayat'): { mitraId: [{ mulai: 'YYYY-MM', gaji }] }
   // Perubahan gaji hanya berlaku mulai bulan yang dipilih, jadi rekap bulan-bulan sebelumnya tidak ikut berubah.
-  function gajiRiwayat() { let v = setting('gaji_riwayat'); if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { v = null; } } return v && typeof v === 'object' ? v : {}; }
-  function gajiPokokPada(mt, m) {
-    const list = (gajiRiwayat()[mt.id] || []).slice().sort((a, b) => a.mulai.localeCompare(b.mulai));
-    if (!list.length) return Number(mt.gaji_pokok) || 0;
+  // Riwayat IPL per rumah sama: pengaturan 'ipl_riwayat'.
+  const RIWAYAT = { mitra: { field: 'gaji_pokok', key: 'gaji_riwayat', label: 'Gaji' }, rumah: { field: 'ipl', key: 'ipl_riwayat', label: 'IPL' } };
+  function riwayatNilai(key) { let v = setting(key); if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { v = null; } } return v && typeof v === 'object' ? v : {}; }
+  function nilaiPada(key, id, m, sekarang) {
+    const list = (riwayatNilai(key)[id] || []).slice().sort((a, b) => a.mulai.localeCompare(b.mulai));
+    if (!list.length) return Number(sekarang) || 0;
     const cur = list.filter(x => x.mulai <= m).pop() || list[0];
-    return Number(cur.gaji) || 0;
+    return Number(cur.gaji ?? cur.nilai) || 0;
   }
+  const gajiRiwayat = () => riwayatNilai('gaji_riwayat');
+  const gajiPokokPada = (mt, m) => nilaiPada('gaji_riwayat', mt.id, m, mt.gaji_pokok);
+  const iplPada = (r, m) => nilaiPada('ipl_riwayat', r.id, m, r.ipl);
   function gajiCalc(mt, m) {
     const isLain = t => ['lembur', 'thr', 'lainnya'].includes(t.komponen);
     const agg = S.agg || { pot: new Map(), kd: new Map() };
@@ -765,7 +771,7 @@
     let y = sel.size ? +[...sel].sort()[0].slice(0, 4) : new Date().getFullYear();
     const curRumah = () => S.d.rumah.find(r => rumahLabel(r) === form.rumah.value.trim()) || S.d.rumah.find(r => r.kode.toLowerCase() === form.rumah.value.trim().split(' - ')[0].toLowerCase());
     const ownPaid = (r, m) => sum((ex && S.iuranByTrx.get(ex.id) || []).filter(b => b.bulan === m && b.rumah_id === r.id), b => b.nominal);
-    const sisa = (r, m) => r.ipl > 0 ? Math.max(0, r.ipl - ((S.paid.get(r.id + '|' + m) || 0) - ownPaid(r, m))) : Infinity;
+    const sisa = (r, m) => { const ipl = iplPada(r, m); return ipl > 0 ? Math.max(0, ipl - ((S.paid.get(r.id + '|' + m) || 0) - ownPaid(r, m))) : Infinity; };
     const tagihan = r => sum([...sel], m => sisa(r, m));
     const cb = $('#sebagian', box);
     function syncNilai() {
@@ -780,7 +786,7 @@
       $('#yLbl', box).textContent = y;
       $('#monthsBox', box).innerHTML = monthsOfYear(y).map(m => {
         const s = r ? sisa(r, m) : null;
-        const lunas = !!r && s === 0, part = !!r && r.ipl > 0 && s > 0 && s < r.ipl;
+        const lunas = !!r && s === 0, part = !!r && iplPada(r, m) > 0 && s > 0 && s < iplPada(r, m);
         if (lunas) sel.delete(m);
         return `<button type="button" data-m="${m}" class="${sel.has(m) ? 'sel' : ''} ${lunas ? 'lunas' : ''} ${part ? 'part' : ''}" ${lunas ? 'disabled title="Sudah lunas"' : ''}>${BLN[+m.slice(5) - 1]}${lunas ? ' ✓' : ''}${part ? `<small>sisa ${num0(s)}</small>` : ''}</button>`;
       }).join('');
@@ -1119,7 +1125,7 @@
   const MASTER = {
     rumah: {
       label: 'Rumah / Warga', table: 'rumah',
-      cols: [['kode', 'Kode'], ['nama', 'Nama'], ['blok', 'Blok'], ['ipl', 'IPL', rp], ['aktif', 'Aktif', v => v ? 'Ya' : 'Tidak'], ['_bank', 'Rekening', (v, r) => { const x = get('rumah_rekening', r.id); return x ? esc([x.bank, x.nama_rekening].filter(Boolean).join(' · ')) : ''; }]],
+      cols: [['kode', 'Kode'], ['nama', 'Nama'], ['blok', 'Blok'], ['ipl', 'IPL', (v, r) => { const l = (riwayatNilai('ipl_riwayat')[r.id] || []).filter(x => x.mulai > curYM()).sort((a, b) => a.mulai.localeCompare(b.mulai))[0]; return rp(v) + (l ? `<div class="small muted">mulai ${fmtBulan(l.mulai)}: ${rp(l.gaji)}</div>` : ''); }], ['aktif', 'Aktif', v => v ? 'Ya' : 'Tidak'], ['_bank', 'Rekening', (v, r) => { const x = get('rumah_rekening', r.id); return x ? esc([x.bank, x.nama_rekening].filter(Boolean).join(' · ')) : ''; }]],
       fields: [['kode', 'Kode rumah (mis. KB1/26)', 'text', true], ['nama', 'Nama penghuni'], ['blok', 'Blok (mis. KB1)'], ['ipl', 'IPL per bulan', 'money'], ['aktif', 'Aktif', 'bool'],
         ['bank', 'Bank pengirim', 'text', false, 'rek'], ['nama_rekening', 'Nama di rekening', 'text', false, 'rek'], ['no_hp', 'No. HP / WA', 'text', false, 'rek']],
     },
@@ -1187,13 +1193,13 @@
       if (t === 'bool') return `<label>${f[1]}<select name="${f[0]}">${opt('1', 'Ya', v !== false)}${opt('0', 'Tidak', v === false)}</select></label>`;
       if (t === 'money') return `<label>${f[1]}<input name="${f[0]}" data-money inputmode="decimal" value="${v === '' || v == null ? '' : v}"></label>`;
       return `<label>${f[1]}<input type="${t}" name="${f[0]}" ${f[3] ? 'required' : ''} value="${esc(v ?? '')}"></label>`;
-    }).join('')}</div>${M.table === 'mitra' && r ? `<div class="kasbon-box hidden" id="gajiMulaiBox"><label>Gaji baru berlaku mulai bulan<input type="month" name="gaji_mulai" value="${curYM()}"></label>
-        <p class="hint">Rekap gaji sebelum bulan ini tetap memakai gaji lama (${rp(gajiPokokPada(r, curYM()))}).</p></div>` : ''}<div class="form-actions"><button type="button" class="btn" id="cancelBtn">Batal</button><button class="btn primary">Simpan</button></div></form>`;
+    }).join('')}</div>${RIWAYAT[M.table] && r ? `<div class="kasbon-box hidden" id="gajiMulaiBox"><label>${RIWAYAT[M.table].label} baru berlaku mulai bulan<input type="month" name="gaji_mulai" value="${curYM()}"></label>
+        <p class="hint">Rekap sebelum bulan ini tetap memakai ${RIWAYAT[M.table].label} lama (${rp(nilaiPada(RIWAYAT[M.table].key, r.id, curYM(), r[RIWAYAT[M.table].field]))}).</p></div>` : ''}<div class="form-actions"><button type="button" class="btn" id="cancelBtn">Batal</button><button class="btn primary">Simpan</button></div></form>`;
     openModal((r ? 'Edit ' : 'Tambah ') + M.label, html, body => {
       moneyInputs(body);
       $('#cancelBtn', body).onclick = closeModal;
       const gmBox = $('#gajiMulaiBox', body);
-      if (gmBox) { const gi = $('#mForm', body).gaji_pokok; const chk = () => gmBox.classList.toggle('hidden', parseRp(gi.value) === (Number(r.gaji_pokok) || 0)); gi.addEventListener('input', chk); gi.addEventListener('change', chk); }
+      if (gmBox) { const H = RIWAYAT[M.table], gi = $('#mForm', body)[H.field]; const chk = () => gmBox.classList.toggle('hidden', parseRp(gi.value) === (Number(r[H.field]) || 0)); gi.addEventListener('input', chk); gi.addEventListener('change', chk); }
       $('#mForm', body).onsubmit = async e => {
         e.preventDefault();
         const fd = Object.fromEntries(new FormData(e.target));
@@ -1208,17 +1214,18 @@
           if (r) await DB.update(M.table, id, row); else { id = uuid(); await DB.insert(M.table, Object.assign({ id }, row)); }
           if (M.table === 'rumah') await DB.upsert('rumah_rekening', Object.assign({ rumah_id: id }, rekRow));
           // Gaji mitra berubah: catat riwayat supaya rekap bulan sebelumnya tetap memakai gaji lama
-          if (M.table === 'mitra' && r && row.gaji_pokok !== (Number(r.gaji_pokok) || 0)) {
-            const mulai = fd.gaji_mulai || curYM(), all = gajiRiwayat();
+          const H = RIWAYAT[M.table];
+          if (H && r && row[H.field] !== (Number(r[H.field]) || 0)) {
+            const mulai = fd.gaji_mulai || curYM(), all = riwayatNilai(H.key);
             let list = (all[r.id] || []).slice();
-            if (!list.length) list.push({ mulai: '0000-00', gaji: Number(r.gaji_pokok) || 0 });
-            list = list.filter(x => x.mulai !== mulai); list.push({ mulai, gaji: row.gaji_pokok });
+            if (!list.length) list.push({ mulai: '0000-00', gaji: Number(r[H.field]) || 0 });
+            list = list.filter(x => x.mulai !== mulai); list.push({ mulai, gaji: row[H.field] });
             list.sort((a, b) => a.mulai.localeCompare(b.mulai));
             all[r.id] = list;
-            // Gaji di Master Data = gaji yang berlaku bulan ini
-            row.gaji_pokok = Number((list.filter(x => x.mulai <= curYM()).pop() || list[0]).gaji) || 0;
-            await DB.update('mitra', r.id, { gaji_pokok: row.gaji_pokok });
-            await DB.upsert('pengaturan', [{ key: 'gaji_riwayat', value: all }]);
+            // Nilai di Master Data = yang berlaku bulan ini
+            const kini = Number((list.filter(x => x.mulai <= curYM()).pop() || list[0]).gaji) || 0;
+            await DB.update(M.table, r.id, { [H.field]: kini });
+            await DB.upsert('pengaturan', [{ key: H.key, value: all }]);
             await reload('pengaturan');
           }
           await reload(M.table, 'rumah_rekening');
