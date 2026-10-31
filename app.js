@@ -1767,7 +1767,7 @@
     // Hanya bulan yang sudah selesai (sebelum bulan ini), bulan terbaru di atas
     const ring = ringkasanTahun(y).filter(r => !r.future && r.ym < curYM()).reverse();
     const kasNow = y < +curYM().slice(0, 4) ? totalKas((y + 1) + '-01-01') : totalKas();
-    section(`Ringkasan bulan (sebelum bulan ini) ${y}`, ['Bulan', 'Pemasukan', 'Pengeluaran', 'Selisih'],
+    section(`Ringkasan bulan ${fmtBulan(y < +curYM().slice(0, 4) ? ymOf(y, 12) : ymAdd(curYM(), -1))}`, ['Bulan', 'Pemasukan', 'Pengeluaran', 'Selisih'],
       ring.map(r => [fmtBulan(r.ym), right2(r.masuk), right2(r.keluar), right2(r.selisih)]),
       { sub: `${y < +curYM().slice(0, 4) ? 'Kas akhir ' + y : 'Kas berjalan (saat ini)'} ${rp2(kasNow)}`, foot: [['Total', right2(sum(ring, r => r.masuk)), right2(sum(ring, r => r.keluar)), right2(sum(ring, r => r.selisih))]] });
 
