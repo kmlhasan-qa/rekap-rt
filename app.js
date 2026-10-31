@@ -275,9 +275,13 @@
     const man = ringkasanSheet(), mb = man ? man.bulan : {}, cutoff = man ? (man.cutoff > SHEET_LAST_FULL ? SHEET_LAST_FULL : man.cutoff) : '';
     const nowY = new Date().getFullYear(), lastM = y === nowY ? new Date().getMonth() + 1 : (y > nowY ? 0 : 12);
     const rows = [];
+    // Iuran dicatat sebagai pemasukan di BULAN IURAN-nya (bukan tanggal bayar). Tanda lunas hasil migrasi (nilai 0) tidak dihitung.
+    const trxMap = new Map(S.d.transaksi.map(t => [t.id, t]));
+    const iuranUntuk = (ym, setelah) => sum(S.d.iuran_bulan.filter(b => { if (b.bulan !== ym) return false; const t = trxMap.get(b.transaksi_id); return t && t.nilai > 0 && (!setelah || t.tanggal > setelah); }), b => Number(b.nominal));
+    const nonIuran = ym => sum(S.d.transaksi.filter(t => t.tipe === 'pemasukan' && (t.bulan || t.tanggal.slice(0, 7)) === ym), t => t.nilai);
     // Bulan yang belum berjalan (khusus admin): berdasarkan bulan pembebanan
     const futureRow = ym => {
-      const masuk = sum(S.d.iuran_bulan.filter(b => b.bulan === ym), b => Number(b.nominal)) + sum(S.d.transaksi.filter(t => t.tipe === 'pemasukan' && t.bulan === ym), t => t.nilai);
+      const masuk = iuranUntuk(ym) + nonIuran(ym);
       const keluar = sum(S.d.transaksi.filter(t => t.tipe === 'pengeluaran' && t.bulan === ym), t => t.nilai);
       const hutang = sum(S.d.hutang_mitra.filter(h => h.bulan === ym), h => Number(h.nominal));
       if (masuk || keluar || hutang) rows.push({ ym, future: true, masuk, keluar, selisih: masuk - keluar, saldo: null, hutang });
@@ -290,11 +294,12 @@
     monthsOfYear(y).slice(0, lastM).forEach(ym => {
       if (cutoff && ym <= cutoff) {
         const m = mb[ym]; if (!m) return;
-        rows.push({ ym, sheet: true, masuk: m.masuk, keluar: m.keluar, selisih: m.selisih != null ? m.selisih : m.masuk - m.keluar, saldo: m.saldo });
+        // Angka sheet + tunggakan bulan ini yang baru dibayar setelah data sheet ditutup
+        const telat = iuranUntuk(ym, cutoff + '-31'), masuk = m.masuk + telat;
+        rows.push({ ym, sheet: true, telat, masuk, keluar: m.keluar, selisih: masuk - m.keluar, saldo: m.saldo });
         return;
       }
-      const tx = S.d.transaksi.filter(t => t.tanggal.slice(0, 7) === ym);
-      const iuran = sum(tx.filter(t => t.tipe === 'iuran'), t => t.nilai), non = sum(tx.filter(t => t.tipe === 'pemasukan'), t => t.nilai);
+      const iuran = iuranUntuk(ym), non = nonIuran(ym);
       // Pengeluaran mengikuti bulan pembebanan, sama seperti Rekap Pengeluaran
       const keluar = sum(S.d.transaksi.filter(t => t.tipe === 'pengeluaran' && (t.bulan || t.tanggal.slice(0, 7)) === ym), t => t.nilai);
       rows.push({ ym, sheet: false, iuran, non, masuk: iuran + non, keluar, selisih: iuran + non - keluar, saldo: totalKas(ymAdd(ym, 1) + '-01') });
@@ -348,7 +353,7 @@
           <td class="num">${rp2(sum(tot, r => r.keluar))}</td><td class="num">${rp2(sum(tot, r => r.selisih))}</td></tr></tfoot>
       </table></div>
       ${shown.some(r => r.future) ? `<p class="hint" style="margin-top:8px">${mixed ? `Bulan bertanda "belum berjalan" (${shown.filter(r => r.future).map(r => BULAN[+r.ym.slice(5) - 1]).join(', ')}) adalah perkiraan dan tidak masuk total.` : `Tahun ${y} belum berjalan.`} Pemasukan = iuran yang sudah dibayar dimuka untuk bulan tersebut; pengeluaran = yang dibebankan ke bulan tersebut. Cicilan hutang mitra yang akan dipotong: ${shown.filter(r => r.hutang).map(r => `${BLN[+r.ym.slice(5) - 1]} ${rp(r.hutang)}`).join(', ') || 'tidak ada'}. Hanya terlihat oleh admin.</p>` : ''}
-      ${shown.some(r => r.sheet) ? `<p class="hint" style="margin-top:8px">Angka s.d. ${fmtBulan(ringkasanSheet().cutoff > '2026-09' ? '2026-09' : ringkasanSheet().cutoff)} diambil dari Ringkasan Google Sheet lama.</p>` : ''}
+      ${shown.some(r => r.sheet) ? `<p class="hint" style="margin-top:8px">Angka s.d. ${fmtBulan(ringkasanSheet().cutoff > '2026-09' ? '2026-09' : ringkasanSheet().cutoff)} diambil dari Ringkasan Google Sheet lama${shown.some(r => r.telat) ? ', ditambah tunggakan iuran bulan tersebut yang baru dibayar setelahnya' : ''}. Mulai Oktober 2026, pemasukan iuran dicatat di bulan iurannya (bukan tanggal bayar) dan pengeluaran di bulan pembebanannya.</p>` : ''}
       ${adm ? `<div class="panel" style="margin-top:18px"><h3>Saldo per dompet (saat ini)</h3><div class="table-wrap"><table><tbody>
         ${S.d.dompet.map(w => `<tr><td>${esc(w.nama)} <span class="badge">${w.jenis}</span></td><td class="num">${rp(saldo(w.id))}</td></tr>`).join('')}
       </tbody></table></div></div>` : ''}`;
