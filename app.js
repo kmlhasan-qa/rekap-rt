@@ -294,7 +294,8 @@
       }
       const tx = S.d.transaksi.filter(t => t.tanggal.slice(0, 7) === ym);
       const iuran = sum(tx.filter(t => t.tipe === 'iuran'), t => t.nilai), non = sum(tx.filter(t => t.tipe === 'pemasukan'), t => t.nilai);
-      const keluar = sum(tx.filter(t => t.tipe === 'pengeluaran'), t => t.nilai);
+      // Pengeluaran mengikuti bulan pembebanan, sama seperti Rekap Pengeluaran
+      const keluar = sum(S.d.transaksi.filter(t => t.tipe === 'pengeluaran' && (t.bulan || t.tanggal.slice(0, 7)) === ym), t => t.nilai);
       rows.push({ ym, sheet: false, iuran, non, masuk: iuran + non, keluar, selisih: iuran + non - keluar, saldo: totalKas(ymAdd(ym, 1) + '-01') });
     });
     return rows;
