@@ -609,6 +609,9 @@
     const aktif = S.d.rumah.filter(r => r.aktif);
     const now = curYM(), prev = ymAdd(now, -1);
     const potensi = sum(aktif, r => r.ipl);
+    // Potensi rutin: tanpa rumah yang menunggak 10 bulan atau lebih
+    const macet = aktif.filter(r => tunggakan(r).bulan.length >= 10);
+    const potensiRutin = sum(aktif.filter(r => !macet.includes(r)), r => r.ipl);
     const realNow = sum(aktif, r => S.paid.get(r.id + '|' + now) || 0);
     const realPrev = sum(aktif, r => S.paid.get(r.id + '|' + prev) || 0);
     const rutin = aktif.filter(r => [1, 2, 3].every(i => statusBulan(r, ymAdd(now, -i)).s !== 'unpaid')).length;
@@ -617,6 +620,7 @@
         <div class="card"><div class="label">Jumlah rumah aktif</div><div class="value">${aktif.length}</div></div>
         <div class="card"><div class="label">Rutin bayar (3 bulan terakhir)</div><div class="value">${rutin}</div></div>
         <div class="card"><div class="label">Potensi penerimaan / bulan</div><div class="value">${rp(potensi)}</div></div>
+        <div class="card"><div class="label">Potensi penerimaan rutin / bulan</div><div class="value">${rp(potensiRutin)}</div><div class="small muted">Tanpa ${macet.length} rumah dengan tunggakan ≥ 10 bulan</div></div>
         <div class="card"><div class="label">Realisasi ${fmtBulan(prev)}</div><div class="value">${rp(realPrev)} <span class="small muted">${potensi ? Math.round(realPrev / potensi * 100) : 0}%</span></div></div>
         <div class="card"><div class="label">Realisasi ${fmtBulan(now)}</div><div class="value">${rp(realNow)} <span class="small muted">${potensi ? Math.round(realNow / potensi * 100) : 0}%</span></div></div>
       </div>
