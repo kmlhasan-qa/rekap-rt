@@ -398,3 +398,5 @@ tr.picked td { background: transparent !important; }
 }
 .kasbon-box { border: 1px dashed var(--primary); background: var(--primary-soft); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
 .kasbon-box .hint { margin: 4px 0 0; color: var(--text); }
+tr.future-row td { color: var(--muted); font-style: italic; }
+tr.future-row td .badge { font-style: normal; }
