@@ -1751,25 +1751,47 @@
       yPos = doc.lastAutoTable.finalY + 10;
     };
     const R = n => fmtNum(n);
-    const right = n => ({ content: n ? R(n) : '-', styles: { halign: 'right' } });
+    const right = n => ({ content: n ? rp(n) : '-', styles: { halign: 'right' } });
+    // Ringkasan: selalu Rp dengan 2 angka di belakang koma
+    const rp2 = n => (n < 0 ? '-' : '') + 'Rp' + Math.abs(Math.round((Number(n) || 0) * 100) / 100).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const right2 = n => ({ content: rp2(n), styles: { halign: 'right' } });
+    // Ikon centang / silang digambar (font PDF standar tidak punya simbol ✓ ✗)
+    const drawMark = (kind, x, y, sz, col) => {
+      doc.setDrawColor(...col); doc.setLineWidth(0.45);
+      if (kind === 'check') { doc.line(x, y + sz * 0.55, x + sz * 0.38, y + sz); doc.line(x + sz * 0.38, y + sz, x + sz, y); }
+      else { doc.line(x, y, x + sz, y + sz); doc.line(x + sz, y, x, y + sz); }
+    };
     const sep = (txt, span) => [{ content: txt, colSpan: span, styles: { fillColor: soft, textColor: green, fontStyle: 'bold' } }];
 
     // 1. Ringkasan
-    const ring = ringkasanTahun(y).filter(r => !r.future || y > +curYM().slice(0, 4));
+    // Hanya bulan yang sudah selesai (sebelum bulan ini), bulan terbaru di atas
+    const ring = ringkasanTahun(y).filter(r => !r.future && r.ym < curYM()).reverse();
     const kasNow = y < +curYM().slice(0, 4) ? totalKas((y + 1) + '-01-01') : totalKas();
-    section(`Ringkasan bulan berjalan ${y}`, ['Bulan', 'Pemasukan', 'Pengeluaran', 'Selisih'],
-      ring.map(r => [fmtBulan(r.ym), right(r.masuk), right(r.keluar), right(r.selisih)]),
-      { sub: `${y < +curYM().slice(0, 4) ? 'Kas akhir ' + y : 'Kas berjalan (saat ini)'} ${rp(kasNow)}`, foot: [['Total', right(sum(ring, r => r.masuk)), right(sum(ring, r => r.keluar)), right(sum(ring, r => r.selisih))]] });
+    section(`Ringkasan bulan (sebelum bulan ini) ${y}`, ['Bulan', 'Pemasukan', 'Pengeluaran', 'Selisih'],
+      ring.map(r => [fmtBulan(r.ym), right2(r.masuk), right2(r.keluar), right2(r.selisih)]),
+      { sub: `${y < +curYM().slice(0, 4) ? 'Kas akhir ' + y : 'Kas berjalan (saat ini)'} ${rp2(kasNow)}`, foot: [['Total', right2(sum(ring, r => r.masuk)), right2(sum(ring, r => r.keluar)), right2(sum(ring, r => r.selisih))]] });
 
     // 2. Rekap bayar warga (lunas = hijau, sebagian = kuning, belum = abu-abu)
-    const sym = { paid: 'L', partial: 'S', unpaid: 'B', future: '' };
+    const sym = { paid: '', partial: 'S', unpaid: '', future: '' };
     const sty = { paid: { fillColor: [46, 139, 87], textColor: 255 }, partial: { fillColor: [244, 208, 63], textColor: 0 }, unpaid: { fillColor: [200, 200, 200], textColor: 0 }, future: {} };
     const body4 = S.d.rumah.filter(r => r.aktif || ms.some(m => S.paid.get(r.id + '|' + m))).map(r =>
-      [rumahLabel(r), ...ms.map(m => { const s = statusBulan(r, m).s; return { content: sym[s], styles: Object.assign({ halign: 'center', fontStyle: 'bold' }, sty[s]) }; })]);
-    section(`Rekap Bayar Warga ${y}  (L = lunas, S = sebagian, B = belum)`, ['Rumah', ...BLN], body4,
+      [rumahLabel(r), ...ms.map(m => { const s = statusBulan(r, m).s; return { content: sym[s], st: s, styles: Object.assign({ halign: 'center', fontStyle: 'bold' }, sty[s]) }; })]);
+    if (yPos > 170) { doc.addPage(); yPos = 14; }
+    { // keterangan simbol
+      let x = 14 + doc.getTextWidth('') ; doc.setFontSize(9); const ly = yPos + 4.6;
+      const leg = (kind, label, fill) => { doc.setFillColor(...fill); doc.rect(x, ly - 3, 5, 4, 'F'); if (kind === 'S') { doc.setTextColor(0); doc.setFont(undefined, 'bold'); doc.text('S', x + 1.6, ly); doc.setFont(undefined, 'normal'); } else drawMark(kind, x + 1.3, ly - 2.4, 2.6, kind === 'check' ? [255, 255, 255] : [0, 0, 0]); doc.setTextColor(60); doc.text(label, x + 6.5, ly); x += 6.5 + doc.getTextWidth(label) + 6; };
+      doc.setFontSize(12); doc.setTextColor(0); doc.text(`Rekap Bayar Warga ${y}`, 14, yPos); yPos += 2; doc.setFontSize(9);
+      leg('check', 'lunas', [46, 139, 87]); leg('S', 'sebagian', [244, 208, 63]); leg('cross', 'belum', [200, 200, 200]); doc.setTextColor(0);
+      yPos += 5;
+    }
+    section('', ['Rumah', ...BLN], body4,
       { styles: { fontSize: 7.5, cellPadding: 1.2, lineColor: 255, lineWidth: 0.3 }, columnStyles: { 0: { cellWidth: 70 } },
         // garis bantu horizontal di bawah setiap baris
-        didDrawCell: d => { if (d.section !== 'body') return; doc.setDrawColor(140); doc.setLineWidth(0.25); const c = d.cell; doc.line(c.x, c.y, c.x + c.width, c.y); doc.line(c.x, c.y + c.height, c.x + c.width, c.y + c.height); } });
+        didDrawCell: d => { if (d.section !== 'body') return;
+          const st = d.cell.raw && d.cell.raw.st; const c0 = d.cell, sz = Math.min(2.8, c0.height - 1.2);
+          if (st === 'paid') drawMark('check', c0.x + (c0.width - sz) / 2, c0.y + (c0.height - sz) / 2, sz, [255, 255, 255]);
+          if (st === 'unpaid') drawMark('cross', c0.x + (c0.width - sz) / 2, c0.y + (c0.height - sz) / 2, sz, [0, 0, 0]);
+          doc.setDrawColor(140); doc.setLineWidth(0.25); const c = d.cell; doc.line(c.x, c.y, c.x + c.width, c.y); doc.line(c.x, c.y + c.height, c.x + c.width, c.y + c.height); } });
 
     // 3. Rekap pengeluaran 3 bulan terakhir
     // Bulan terakhir yang sudah selesai (sebelum bulan berjalan); untuk tahun lampau = Desember
@@ -1781,10 +1803,10 @@
     ms3.filter(m => px.some(t => bm(t) === m)).forEach(m => {
       body2.push(sep(fmtBulan(m), 2));
       kats.forEach(k => { const v = sum(px.filter(t => bm(t) === m && (get('kategori', t.kategori_id) ? t.kategori_id : null) === k.id), t => t.nilai); if (v) body2.push([k.nama, right(v)]); });
-      body2.push([{ content: 'Total ' + fmtBulan(m), styles: { fontStyle: 'bold' } }, { content: R(sum(px.filter(t => bm(t) === m), t => t.nilai)), styles: { halign: 'right', fontStyle: 'bold' } }]);
+      body2.push([{ content: 'Total ' + fmtBulan(m), styles: { fontStyle: 'bold' } }, { content: rp(sum(px.filter(t => bm(t) === m), t => t.nilai)), styles: { halign: 'right', fontStyle: 'bold' } }]);
     });
     if (yPos > 120) { doc.addPage(); yPos = 14; }
-    section(`Rekap Pengeluaran 3 bulan terakhir (${ms3.length ? fmtBulan(ms3[ms3.length - 1]) + ' - ' + fmtBulan(ms3[0]) : '-'})`, ['Kategori', 'Nilai (Rp)'], body2,
+    section(`Rekap Pengeluaran 3 bulan terakhir (${ms3.length ? fmtBulan(ms3[ms3.length - 1]) + ' - ' + fmtBulan(ms3[0]) : '-'})`, ['Kategori', 'Nilai'], body2,
       { foot: [['Total 3 bulan', right(sum(px, t => t.nilai))]], tableWidth: 150 });
 
     // 4. Gaji mitra bulan terakhir
@@ -1793,9 +1815,11 @@
       .sort((a, b) => posRank(a.posisi) - posRank(b.posisi) || String(a.posisi || '').localeCompare(String(b.posisi || ''), 'id') || a.nama.localeCompare(b.nama, 'id'));
     const g = mitraG.map(mt => ({ mt, c: gajiCalc(mt, lastM) }));
     if (yPos > 150) { doc.addPage(); yPos = 14; }
-    section(`Gaji Mitra ${fmtBulan(lastM)}`, ['Mitra', 'Posisi', 'Gaji', 'Sudah terbayar', 'Belum terbayar', 'Lembur & lainnya', 'Total'],
-      g.map(x => [x.mt.nama, x.mt.posisi || '', right(x.c.gaji), right(x.c.terbayar), right(x.c.belum), right(x.c.lain), right(x.c.total)]),
-      { foot: [['Total', '', ...['gaji', 'terbayar', 'belum', 'lain', 'total'].map(f => right(sum(g, x => x.c[f])))]] });
+    // Gaji pokok sesuai Master Data (per bulan / per kedatangan) yang berlaku di bulan tsb
+    const gajiKet = mt => `${rp(gajiPokokPada(mt, lastM))} ${mt.jenis_gaji === 'kedatangan' ? '/kedatangan' : '/bulan'}`;
+    section(`Gaji Mitra ${fmtBulan(lastM)}`, ['Mitra', 'Posisi', 'Gaji pokok', 'Gaji bulan ini', 'Sudah terbayar', 'Lembur & lainnya', 'Total'],
+      g.map(x => [x.mt.nama, x.mt.posisi || '', gajiKet(x.mt), right(x.c.gaji), right(x.c.terbayar), right(x.c.lain), right(x.c.total)]),
+      { foot: [['Total', '', '', ...['gaji', 'terbayar', 'lain', 'total'].map(f => right(sum(g, x => x.c[f])))]] });
 
     const pages = doc.internal.getNumberOfPages();
     for (let i = 1; i <= pages; i++) { doc.setPage(i); doc.setFontSize(8); doc.setTextColor(120); doc.text(`${nama} - ${y} - halaman ${i}/${pages}`, 14, 203); }
