@@ -294,13 +294,8 @@
     monthsOfYear(y).slice(0, lastM).forEach(ym => {
       if (cutoff && ym <= cutoff) {
         const m = mb[ym]; if (!m) return;
-        // Sheet lama dihitung per tanggal uang masuk. Supaya sama dengan cara baru (per bulan iuran):
-        // + tunggakan bulan ini yang baru dibayar setelah data sheet ditutup
-        // − iuran untuk bulan setelah sheet ditutup (Okt 2026 dst.) yang dibayar di muka pada bulan ini
-        const telat = iuranUntuk(ym, cutoff + '-31');
-        const dimuka = sum(S.d.iuran_bulan.filter(b => { if (b.bulan <= cutoff) return false; const t = trxMap.get(b.transaksi_id); return t && t.nilai > 0 && t.tanggal.slice(0, 7) === ym; }), b => Number(b.nominal));
-        const masuk = m.masuk + telat - dimuka;
-        rows.push({ ym, sheet: true, telat, dimuka, masuk, keluar: m.keluar, selisih: masuk - m.keluar, saldo: m.saldo });
+        // Bulan s.d. September 2026: sama persis dengan Ringkasan di Google Sheet
+        rows.push({ ym, sheet: true, masuk: m.masuk, keluar: m.keluar, selisih: m.selisih != null ? m.selisih : m.masuk - m.keluar, saldo: m.saldo });
         return;
       }
       const iuran = iuranUntuk(ym), non = nonIuran(ym);
@@ -337,8 +332,7 @@
     const mixed = shown.some(r => r.future) && shown.some(r => !r.future), tot = mixed ? shown.filter(r => !r.future) : shown;
     el.innerHTML = `
       <div class="toolbar">${yearSelect()}<span class="spacer"></span>${framed ? '' : '<button class="btn desk-only" id="printBtn">Print</button>'}</div>
-      <div class="cards">
-        <div class="card"><div class="label">Kas awal ${y}</div><div class="value">${rpx(kasAwal)}</div></div>
+      <div class="cards c3">
         <div class="card"><div class="label">${isNow ? 'Kas berjalan' : 'Kas akhir ' + y}</div><div class="value">${rpx(kasAkhir)}</div></div>
         <div class="card"><div class="label">Saldo rekening (saat ini)</div><div class="value">${rp(rek)}</div></div>
         <div class="card"><div class="label">Saldo tunai (saat ini)</div><div class="value">${rp(tunai)}</div></div>
@@ -357,7 +351,7 @@
           <td class="num">${rp2(sum(tot, r => r.keluar))}</td><td class="num">${rp2(sum(tot, r => r.selisih))}</td></tr></tfoot>
       </table></div>
       ${shown.some(r => r.future) ? `<p class="hint" style="margin-top:8px">${mixed ? `Bulan bertanda "belum berjalan" (${shown.filter(r => r.future).map(r => BULAN[+r.ym.slice(5) - 1]).join(', ')}) adalah perkiraan dan tidak masuk total.` : `Tahun ${y} belum berjalan.`} Pemasukan = iuran yang sudah dibayar dimuka untuk bulan tersebut; pengeluaran = yang dibebankan ke bulan tersebut. Cicilan hutang mitra yang akan dipotong: ${shown.filter(r => r.hutang).map(r => `${BLN[+r.ym.slice(5) - 1]} ${rp(r.hutang)}`).join(', ') || 'tidak ada'}. Hanya terlihat oleh admin.</p>` : ''}
-      ${shown.some(r => r.sheet) ? `<p class="hint" style="margin-top:8px">Angka s.d. ${fmtBulan(ringkasanSheet().cutoff > '2026-09' ? '2026-09' : ringkasanSheet().cutoff)} diambil dari Ringkasan Google Sheet lama${shown.some(r => r.telat || r.dimuka) ? ', disesuaikan: ditambah tunggakan bulan tersebut yang baru dibayar setelahnya, dikurangi iuran Oktober 2026 dst. yang dibayar di muka pada bulan tersebut (sudah dihitung di bulan iurannya)' : ''}. Mulai Oktober 2026, pemasukan iuran dicatat di bulan iurannya (bukan tanggal bayar) dan pengeluaran di bulan pembebanannya.</p>` : ''}
+      ${shown.some(r => r.sheet) ? `<p class="hint" style="margin-top:8px">Angka s.d. ${fmtBulan(ringkasanSheet().cutoff > '2026-09' ? '2026-09' : ringkasanSheet().cutoff)} diambil dari Ringkasan Google Sheet lama. Mulai Oktober 2026, pemasukan iuran dicatat di bulan iurannya (bukan tanggal bayar) dan pengeluaran di bulan pembebanannya.</p>` : ''}
       ${adm ? `<div class="panel" style="margin-top:18px"><h3>Saldo per dompet (saat ini)</h3><div class="table-wrap"><table><tbody>
         ${S.d.dompet.map(w => `<tr><td>${esc(w.nama)} <span class="badge">${w.jenis}</span></td><td class="num">${rp(saldo(w.id))}</td></tr>`).join('')}
       </tbody></table></div></div>` : ''}`;
