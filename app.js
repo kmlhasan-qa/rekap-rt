@@ -55,15 +55,34 @@
   const warn = msg => toast(msg, true);
   const framed = (() => { try { return window.self !== window.top; } catch (e) { return true; } })();
   function ask(msg) {
-    return new Promise(res => openModal('Konfirmasi', `<p>${esc(msg)}</p><div class="form-actions"><button class="btn" id="askNo">Batal</button><button class="btn primary" id="askYes">Ya, lanjutkan</button></div>`, b => {
+    return new Promise(res => openModal('Konfirmasi', `<p class="ask-msg">${esc(msg)}</p><div class="form-actions"><button class="btn" id="askNo">Batal</button><button class="btn primary" id="askYes">Ya, lanjutkan</button></div>`, b => {
       $('#askNo', b).onclick = () => { closeModal(); res(false); };
       $('#askYes', b).onclick = () => { closeModal(); res(true); };
     }));
   }
   function closeModal() { $('#modal').classList.add('hidden'); $('#modalBody').innerHTML = ''; }
-  async function run(fn, okMsg) {
-    try { await fn(); if (okMsg) toast(okMsg); return true; } catch (e) { console.error(e); warn('Gagal: ' + e.message); return false; }
+  // Layar "memproses" yang menutup seluruh halaman selama simpan/ubah/hapus, agar tidak bisa klik dua kali
+  let busyN = 0;
+  function busy(on, msg) {
+    let o = document.getElementById('busy');
+    if (!o) { o = document.createElement('div'); o.id = 'busy'; o.innerHTML = '<div class="busy-box"><div class="spinner"></div><div id="busyMsg">Memproses...</div></div>'; document.body.appendChild(o); }
+    busyN = Math.max(0, busyN + (on ? 1 : -1));
+    if (on && msg) o.querySelector('#busyMsg').textContent = msg;
+    if (!busyN) o.querySelector('#busyMsg').textContent = 'Memproses...';
+    o.classList.toggle('show', busyN > 0);
   }
+  let running = false;
+  async function run(fn, okMsg, msg) {
+    if (running) return false;
+    running = true; busy(true, msg || 'Menyimpan...');
+    try { await fn(); if (okMsg) toast(okMsg); return true; } catch (e) { console.error(e); warn('Gagal: ' + e.message); return false; }
+    finally { running = false; busy(false); }
+  }
+  // Semua penulisan data juga menampilkan layar memproses (termasuk yang tidak lewat run)
+  ['insert', 'upsert', 'update', 'remove', 'removeWhere'].forEach(fn => {
+    const orig = DB[fn]; if (!orig) return;
+    DB[fn] = async (...a) => { busy(true); try { return await orig.apply(DB, a); } finally { busy(false); } };
+  });
   function moneyInputs(root) {
     $$('input[data-money]', root).forEach(i => {
       i.addEventListener('blur', () => { if (i.value !== '') i.value = fmtNum(parseRp(i.value)); });
@@ -209,7 +228,7 @@
       + (isAdmin() ? `<button type="button" id="bnMenu">${svg('menu')}<span>Lainnya</span></button>` : '');
     if ($('#bnMenu')) $('#bnMenu').onclick = () => $('#menuBtn').click();
   }
-  function route() {
+  function route(keep) {
     let key = (location.hash.match(/^#\/?(\w+)/) || [])[1] || (canWrite() ? 'input' : 'dashboard');
     if (key === 'pencairan') key = 'gaji';
     let page = PAGES.find(p => p.key === key);
@@ -220,9 +239,10 @@
     destroyCharts(); closeModal();
     const view = $('#view'); view.innerHTML = '';
     try { page.render(view); } catch (e) { console.error(e); view.innerHTML = `<div class="panel error">Terjadi kesalahan: ${esc(e.message)}</div>`; }
-    window.scrollTo(0, 0);
+    if (!keep) window.scrollTo(0, 0);
   }
-  const rerender = () => route();
+  // Render ulang halaman yang sama tanpa melompat ke atas
+  const rerender = () => { const y = window.scrollY; route(true); window.scrollTo(0, y); setTimeout(() => window.scrollTo(0, y), 90); };
 
   // Tabel yang lebih lebar dari layar HP otomatis ditampilkan sebagai kartu (label kolom di kiri, nilai di kanan)
   const MOBILE = () => window.matchMedia('(max-width: 860px)').matches;
@@ -249,7 +269,10 @@
   // bulan sesudahnya dihitung dari transaksi aplikasi.
   function ringkasanSheet() { try { const r = JSON.parse(setting('ringkasan_sheet') || 'null'); return r && r.bulan ? r : null; } catch (e) { return null; } }
   function ringkasanTahun(y) {
-    const man = ringkasanSheet(), mb = man ? man.bulan : {}, cutoff = man ? man.cutoff : '';
+    // Angka sheet lama hanya dipakai untuk bulan yang sudah lengkap di sheet (s.d. September 2026).
+    // Oktober 2026 di sheet hanya sebagian bulan, jadi mulai Oktober dihitung dari transaksi di aplikasi.
+    const SHEET_LAST_FULL = '2026-09';
+    const man = ringkasanSheet(), mb = man ? man.bulan : {}, cutoff = man ? (man.cutoff > SHEET_LAST_FULL ? SHEET_LAST_FULL : man.cutoff) : '';
     const nowY = new Date().getFullYear(), lastM = y === nowY ? new Date().getMonth() + 1 : (y > nowY ? 0 : 12);
     const rows = [];
     if (y > nowY) {
@@ -321,7 +344,7 @@
           <td class="num">${rp2(sum(shown, r => r.keluar))}</td><td class="num">${rp2(sum(shown, r => r.selisih))}</td><td class="num"></td></tr></tfoot>
       </table></div>
       ${shown.some(r => r.future) ? `<p class="hint" style="margin-top:8px">Tahun ${y} belum berjalan. Pemasukan = iuran yang sudah dibayar dimuka untuk bulan tersebut; pengeluaran = yang dibebankan ke bulan tersebut. Cicilan hutang mitra yang akan dipotong: ${shown.filter(r => r.hutang).map(r => `${BLN[+r.ym.slice(5) - 1]} ${rp(r.hutang)}`).join(', ') || 'tidak ada'}. Hanya terlihat oleh admin.</p>` : ''}
-      ${shown.some(r => r.sheet) ? `<p class="hint" style="margin-top:8px">Angka s.d. ${fmtBulan(ringkasanSheet().cutoff)} diambil dari Ringkasan Google Sheet lama.</p>` : ''}
+      ${shown.some(r => r.sheet) ? `<p class="hint" style="margin-top:8px">Angka s.d. ${fmtBulan(ringkasanSheet().cutoff > '2026-09' ? '2026-09' : ringkasanSheet().cutoff)} diambil dari Ringkasan Google Sheet lama.</p>` : ''}
       ${adm ? `<div class="panel" style="margin-top:18px"><h3>Saldo per dompet (saat ini)</h3><div class="table-wrap"><table><tbody>
         ${S.d.dompet.map(w => `<tr><td>${esc(w.nama)} <span class="badge">${w.jenis}</span></td><td class="num">${rp(saldo(w.id))}</td></tr>`).join('')}
       </tbody></table></div></div>` : ''}`;
@@ -793,12 +816,12 @@
 
   // ---------- Pencairan gaji mitra
   function pgPencairan(el, forcedBulan) {
-    const rekList = S.d.dompet.filter(w => w.jenis === 'rekening' && w.aktif);
-    const tunaiList = S.d.dompet.filter(w => w.jenis === 'tunai' && w.aktif);
-    const st = S.pcr || (S.pcr = { bulan: curYM(), tahap: new Date().getDate() <= 20 ? 'tengah' : 'akhir', tanggal: todayISO(), metode: 'transfer', tunaiId: (tunaiList[0] || {}).id, ov: {} });
+    const dompetAktif = S.d.dompet.filter(w => w.aktif);
+    const st = S.pcr || (S.pcr = { bulan: curYM(), tahap: new Date().getDate() <= 20 ? 'tengah' : 'akhir', tanggal: todayISO(), ov: {} });
     if (forcedBulan) st.bulan = forcedBulan;
-    if (!st.rekId || !rekList.some(w => w.id === st.rekId)) st.rekId = (rekList.find(w => /mandiri/i.test(w.nama)) || rekList[0] || {}).id;
-    const rek = get('dompet', st.rekId);
+    // Dompet default untuk semua mitra (bisa diganti per mitra)
+    if (!st.dompetId || !dompetAktif.some(w => w.id === st.dompetId)) st.dompetId = (dompetAktif.find(w => w.jenis === 'rekening' && /mandiri/i.test(w.nama)) || dompetAktif[0] || {}).id;
+    const dompetSel = sel => ['rekening', 'tunai'].map(j => { const ws = dompetAktif.filter(w => w.jenis === j); return ws.length ? `<optgroup label="${j === 'rekening' ? 'Transfer dari rekening' : 'Tunai dari'}">${ws.map(w => opt(w.id, w.jenis === 'tunai' ? w.nama.replace(/^Tunai\s*-\s*/i, 'Tunai ') : w.nama, w.id === sel)).join('')}</optgroup>` : ''; }).join('');
     const key = st.bulan + '|' + st.tahap;
     const ov = st.ov[key] || (st.ov[key] = {});
     const kat = S.d.kategori.find(k => /gaji/i.test(k.nama)) || S.d.kategori[0];
@@ -810,7 +833,7 @@
       const tarif = Number(m.gaji_pokok) || 0;
       const cic = S.d.hutang_mitra.filter(h => h.mitra_id === m.id && h.bulan === st.bulan && !h.lunas);
       const cicTotal = sum(cic, h => h.nominal);
-      const r = { m, o, kedatangan, cic, potong: 0, note: '', metode: o.metode || st.metode };
+      const r = { m, o, kedatangan, cic, potong: 0, note: '', dompetId: o.dompetId && get('dompet', o.dompetId) ? o.dompetId : st.dompetId };
       if (kedatangan) {
         // Dibayar per kedatangan, tidak mengikuti tahap tengah/akhir bulan
         r.visits = S.d.kedatangan_mitra.filter(v => v.mitra_id === m.id && v.bulan === st.bulan).sort((a, b) => a.ke - b.ke);
@@ -845,7 +868,7 @@
     });
     const go = rows.filter(r => r.include);
     const payInputs = r => `<div class="pc-inputs"><label>Jumlah dibayar<input data-amt="${r.m.id}" data-money inputmode="decimal" value="${r.amount}"></label>
-          <label>Metode<select data-met="${r.m.id}">${opt('transfer', 'Transfer', r.metode === 'transfer')}${opt('tunai', 'Tunai', r.metode === 'tunai')}</select></label></div>`;
+          <label>Dibayar dari<select data-dom="${r.m.id}">${dompetSel(r.dompetId)}</select></label></div>`;
     const cicRow = r => (r.potong ? `<div class="mrow"><span>− Cicilan hutang (ke-${r.cic.map(h => h.cicilan_ke).join(', ')})</span><span>${rp(r.potong)}</span></div>` : '')
       + (r.note ? `<div class="small neg">${r.note}</div>` : '');
     const cardKedatangan = r => {
@@ -885,9 +908,7 @@
         ${forcedBulan ? '' : `<label>Bulan gaji<input type="month" id="pBulan" value="${st.bulan}"></label>`}
         <label>Tahap (gaji bulanan)<select id="pTahap">${opt('tengah', 'Tengah bulan', tengah)}${opt('akhir', 'Akhir bulan / sekali bayar', !tengah)}</select></label>
         <label>Tanggal bayar<input type="date" id="pTgl" value="${st.tanggal}"></label>
-        <label>Metode (semua)<select id="pMetode">${opt('transfer', 'Transfer', st.metode === 'transfer')}${opt('tunai', 'Tunai', st.metode === 'tunai')}</select></label>
-        ${rekList.length > 1 ? `<label>Transfer dari<select id="pRek">${rekList.map(w => opt(w.id, w.nama, w.id === st.rekId)).join('')}</select></label>` : ''}
-        ${tunaiList.length > 1 && (st.metode === 'tunai' || rows.some(r => r.metode === 'tunai')) ? `<label>Tunai dari<select id="pTunai">${tunaiList.map(w => opt(w.id, w.nama, w.id === st.tunaiId)).join('')}</select></label>` : ''}
+        <label>Bayar dari (semua mitra)<select id="pDompet">${dompetSel(st.dompetId)}</select></label>
       </div>
       ${bulananRows.length ? `<h3 class="pc-title">Gaji bulanan</h3>
       <p class="hint">${tengah ? 'Tengah bulan: bayar sebagian gaji. Jumlah awal 50% gaji, bisa diubah.' : 'Akhir bulan: gaji dikurangi pembayaran tengah bulan, kasbon, dan cicilan hutang bulan ini. Pilih tahap ini juga untuk mitra yang dibayar sekali sebulan.'}</p>
@@ -902,12 +923,10 @@
     if ($('#pBulan', el)) $('#pBulan', el).onchange = e => { if (e.target.value) { st.bulan = e.target.value; rerender(); } };
     $('#pTahap', el).onchange = e => { st.tahap = e.target.value; rerender(); };
     $('#pTgl', el).onchange = e => { st.tanggal = e.target.value || todayISO(); };
-    $('#pMetode', el).onchange = e => { st.metode = e.target.value; Object.values(ov).forEach(o => delete o.metode); rerender(); };
-    if ($('#pTunai', el)) $('#pTunai', el).onchange = e => { st.tunaiId = e.target.value; };
-    if ($('#pRek', el)) $('#pRek', el).onchange = e => { st.rekId = e.target.value; };
+    $('#pDompet', el).onchange = e => { st.dompetId = e.target.value; Object.values(ov).forEach(o => delete o.dompetId); rerender(); };
     $$('[data-inc]', el).forEach(c => c.onchange = () => { ov[c.dataset.inc].include = c.checked; rerender(); });
     $$('[data-amt]', el).forEach(i => i.addEventListener('change', () => { ov[i.dataset.amt].amount = parseRp(i.value); rerender(); }));
-    $$('[data-met]', el).forEach(s2 => s2.onchange = () => { ov[s2.dataset.met].metode = s2.value; rerender(); });
+    $$('[data-dom]', el).forEach(s2 => s2.onchange = () => { ov[s2.dataset.dom].dompetId = s2.value; });
     $$('[data-visit]', el).forEach(c => c.onchange = () => { const [mid, vid] = c.dataset.visit.split('|'); ov[mid].vsel[vid] = c.checked; delete ov[mid].amount; rerender(); });
     $$('[data-vplus]', el).forEach(b => b.onclick = async () => {
       if (b.disabled) return; b.disabled = true;
@@ -922,18 +941,17 @@
     });
     $('#doCair', el).onclick = async () => {
       if (!go.length) return;
-      const tunaiId = st.tunaiId || (tunaiList[0] || {}).id;
-      for (const r of go) {
-        if (r.metode === 'tunai' && !tunaiId) return warn('Belum ada dompet tunai. Tambahkan di Master Data → Dompet.');
-        if (r.metode === 'transfer' && !rek) return warn('Belum ada dompet rekening. Tambahkan di Master Data → Dompet.');
-      }
-      if (!await ask(`Cairkan gaji ${fmtBulan(st.bulan)} untuk ${go.length} mitra, total ${rp(sum(go, r => r.amount))}?`)) return;
+      // Ambil pilihan dompet langsung dari layar saat tombol ditekan
+      go.forEach(r => { const sel = $(`[data-dom="${r.m.id}"]`, el); r.dompetId = (sel && sel.value) || r.dompetId || st.dompetId; });
+      if (go.some(r => !get('dompet', r.dompetId))) return warn('Pilih dompet pembayaran untuk setiap mitra.');
+      const perDompet = {}; go.forEach(r => { const n = get('dompet', r.dompetId).nama; perDompet[n] = (perDompet[n] || 0) + r.amount; });
+      if (!await ask(`Cairkan gaji ${fmtBulan(st.bulan)} untuk ${go.length} mitra, total ${rp(sum(go, r => r.amount))}?\n\n${Object.entries(perDompet).map(([n, v]) => `• ${n}: ${rp(v)}`).join('\n')}`)) return;
       const txs = [], hut = [], vis = [];
       go.forEach(r => {
         const id = uuid(), pot = r.kedatangan || !tengah ? r.potong : 0;
         const ket = r.kedatangan ? `Gaji kedatangan ke-${r.chosen.map(v => v.ke).join(', ')} ${fmtBulan(st.bulan)} - ${r.m.nama}`
           : `${tengah ? 'Gaji tengah bulan' : 'Gaji'} ${fmtBulan(st.bulan)} - ${r.m.nama}`;
-        txs.push({ id, tipe: 'pengeluaran', tanggal: st.tanggal, nilai: r.amount, dompet_id: r.metode === 'tunai' ? tunaiId : rek.id, dompet_tujuan_id: null,
+        txs.push({ id, tipe: 'pengeluaran', tanggal: st.tanggal, nilai: r.amount, dompet_id: r.dompetId, dompet_tujuan_id: null,
           kategori_id: kat ? kat.id : null, rumah_id: null, mitra_id: r.m.id, komponen: !r.kedatangan && tengah ? 'gaji_tengah' : 'gaji', bulan: st.bulan,
           keterangan: ket + (pot ? ` (potong cicilan ${rp(pot)})` : '') });
         if (pot) r.cic.forEach(h => hut.push([h.id, id]));
@@ -944,7 +962,7 @@
         for (const [hid, tid] of hut) await DB.update('hutang_mitra', hid, { lunas: true, transaksi_id: tid });
         for (const [vid, tid] of vis) await DB.update('kedatangan_mitra', vid, { transaksi_id: tid });
         await reload('transaksi', 'hutang_mitra', 'kedatangan_mitra');
-      }, 'Gaji dicairkan');
+      }, 'Gaji dicairkan', 'Mencairkan gaji...');
       if (ok) { delete st.ov[key]; rerender(); }
     };
   }
@@ -956,6 +974,9 @@
       && (!f.dompet || t.dompet_id === f.dompet || t.dompet_tujuan_id === f.dompet) && (!f.kategori || t.kategori_id === f.kategori)
       && (!f.q || (t.keterangan + ' ' + rumahLabel(get('rumah', t.rumah_id)) + ' ' + ((get('mitra', t.mitra_id) || {}).nama || '')).toLowerCase().includes(f.q.toLowerCase())))
       .slice().reverse();
+    const sel = S.riwSel || (S.riwSel = new Set());
+    [...sel].forEach(id => { if (!get('transaksi', id)) sel.delete(id); });
+    const shown = list.slice(0, f.n);
     const masuk = sum(list.filter(t => t.tipe === 'iuran' || t.tipe === 'pemasukan'), t => t.nilai);
     const keluar = sum(list.filter(t => t.tipe === 'pengeluaran'), t => t.nilai);
     el.innerHTML = `
@@ -973,11 +994,16 @@
         <div class="card"><div class="label">Total masuk</div><div class="value pos">${rp(masuk)}</div></div>
         <div class="card"><div class="label">Total keluar</div><div class="value neg">${rp(keluar)}</div></div>
       </div>
+      <div class="bulk-bar rw ${sel.size ? 'on' : ''}">
+        <label class="check"><input type="checkbox" id="selAll" ${shown.length && shown.every(t => sel.has(t.id)) ? 'checked' : ''}> Pilih semua yang tampil</label>
+        <span class="bulk-n">${sel.size ? `<b>${sel.size}</b> dipilih · ${rp(sum(S.d.transaksi.filter(t => sel.has(t.id)), t => t.nilai))}` : ''}</span>
+        ${sel.size ? '<button class="btn small" id="selClear">Batal pilih</button><button class="btn small danger" id="selDel">Hapus terpilih</button>' : ''}
+      </div>
       <div class="table-wrap"><table class="stack">
-        <thead><tr><th>Tanggal</th><th>Tipe</th><th>Uraian</th><th>Dompet</th><th class="num">Nilai</th><th></th></tr></thead>
-        <tbody>${list.slice(0, f.n).map(t => `<tr><td>${fmtTgl(t.tanggal)}</td><td><span class="badge ${TIPE_BADGE[t.tipe]}">${TIPE_LABEL[t.tipe]}</span></td><td class="wrap">${trxDesc(t)}</td>
+        <thead><tr><th class="sel-col rw"></th><th>Tanggal</th><th>Tipe</th><th>Uraian</th><th>Dompet</th><th class="num">Nilai</th><th></th></tr></thead>
+        <tbody>${shown.map(t => `<tr class="${sel.has(t.id) ? 'picked' : ''}"><td class="sel-col rw"><input type="checkbox" data-sel="${t.id}" ${sel.has(t.id) ? 'checked' : ''} aria-label="Pilih transaksi"></td><td>${fmtTgl(t.tanggal)}</td><td><span class="badge ${TIPE_BADGE[t.tipe]}">${TIPE_LABEL[t.tipe]}</span></td><td class="wrap">${trxDesc(t)}</td>
           <td class="meta">${esc((get('dompet', t.dompet_id) || {}).nama)}</td><td class="num">${rp(t.nilai)}</td>
-          <td class="act"><div class="row-actions"><button class="btn small" data-edit="${t.id}">Edit</button><button class="btn small danger" data-del="${t.id}">Hapus</button></div></td></tr>`).join('') || '<tr><td colspan="6" class="empty">Tidak ada transaksi</td></tr>'}</tbody>
+          <td class="act"><div class="row-actions"><button class="btn small" data-edit="${t.id}">Edit</button><button class="btn small danger" data-del="${t.id}">Hapus</button></div></td></tr>`).join('') || '<tr><td colspan="7" class="empty">Tidak ada transaksi</td></tr>'}</tbody>
       </table></div>
       ${list.length > f.n ? `<div class="form-actions" style="justify-content:center"><button class="btn" id="more">Tampilkan lebih banyak (${list.length - f.n} lagi)</button></div>` : ''}`;
     const bind = (id, k, num) => $(id, el).onchange = e => { f[k] = num ? +e.target.value : e.target.value; f.n = 100; rerender(); };
@@ -988,15 +1014,33 @@
       const t = get('transaksi', b.dataset.edit);
       openModal('Edit ' + TIPE_LABEL[t.tipe], '<div id="editBox"></div>', body => trxForm($('#editBox', body), t.tipe, t, rerender));
     });
+    // Hapus transaksi: cicilan hutang & kedatangan yang terkait dikembalikan ke belum dibayar
+    const delTrx = async t => {
+      for (const h of S.d.hutang_mitra.filter(h => h.transaksi_id === t.id)) await DB.update('hutang_mitra', h.id, { lunas: false, transaksi_id: null });
+      for (const v of S.d.kedatangan_mitra.filter(v => v.transaksi_id === t.id)) await DB.update('kedatangan_mitra', v.id, { transaksi_id: null });
+      await DB.remove('transaksi', t.id);
+    };
+    const reloadAll = () => reload('transaksi', 'iuran_bulan', 'hutang_mitra', 'kedatangan_mitra');
     $$('[data-del]', el).forEach(b => b.onclick = async () => {
       const t = get('transaksi', b.dataset.del);
       if (!await ask(`Hapus transaksi ${TIPE_LABEL[t.tipe]} ${rp(t.nilai)} tanggal ${fmtTgl(t.tanggal)}?`)) return;
-      if (await run(async () => {
-        for (const h of S.d.hutang_mitra.filter(h => h.transaksi_id === t.id)) await DB.update('hutang_mitra', h.id, { lunas: false, transaksi_id: null });
-        for (const v of S.d.kedatangan_mitra.filter(v => v.transaksi_id === t.id)) await DB.update('kedatangan_mitra', v.id, { transaksi_id: null });
-        await DB.remove('transaksi', t.id); await reload('transaksi', 'iuran_bulan', 'hutang_mitra', 'kedatangan_mitra');
-      }, 'Transaksi dihapus')) rerender();
+      if (await run(async () => { await delTrx(t); sel.delete(t.id); await reloadAll(); }, 'Transaksi dihapus', 'Menghapus...')) rerender();
     });
+    $$('[data-sel]', el).forEach(c => c.onchange = () => { c.checked ? sel.add(c.dataset.sel) : sel.delete(c.dataset.sel); rerender(); });
+    if ($('#selAll', el)) $('#selAll', el).onchange = e => { shown.forEach(t => e.target.checked ? sel.add(t.id) : sel.delete(t.id)); rerender(); };
+    if ($('#selClear', el)) $('#selClear', el).onclick = () => { sel.clear(); rerender(); };
+    if ($('#selDel', el)) $('#selDel', el).onclick = async () => {
+      const ts = S.d.transaksi.filter(t => sel.has(t.id));
+      if (!ts.length) return;
+      if (!await ask(`Hapus ${ts.length} transaksi terpilih (total ${rp(sum(ts, t => t.nilai))})? Tindakan ini tidak bisa dibatalkan.`)) return;
+      let n = 0;
+      const ok = await run(async () => {
+        for (const t of ts) { await delTrx(t); sel.delete(t.id); n++; $('#busyMsg').textContent = `Menghapus ${n}/${ts.length}...`; }
+        await reloadAll();
+      }, `${ts.length} transaksi dihapus`, `Menghapus 0/${ts.length}...`);
+      if (!ok) await reloadAll();
+      rerender();
+    };
   }
 
   // ---------- Master data
@@ -1085,19 +1129,47 @@
 
   // ---------- Hutang mitra
   function pgHutang(el) {
+    const f = S.fHut || (S.fHut = { mitra: '', lunas: false });
+    const mName = id => (get('mitra', id) || {}).nama || 'Tanpa mitra';
     const groups = {};
     S.d.hutang_mitra.slice().sort((a, b) => a.bulan.localeCompare(b.bulan) || (a.cicilan_ke || 0) - (b.cicilan_ke || 0))
       .forEach(h => { const k = (h.mitra_id || '-') + '|' + (h.keterangan || ''); (groups[k] = groups[k] || []).push(h); });
-    el.innerHTML = `<p class="hint">Cicilan otomatis ditandai lunas saat gaji akhir bulan dicairkan lewat menu Pencairan Gaji, dan nominalnya dipotong dari gaji bulan itu.</p>
-      <div class="toolbar"><span class="spacer"></span><button class="btn" id="addOne">+ Tambah cicilan</button><button class="btn primary" id="addPlan">+ Buat jadwal cicilan</button></div>
-      ${Object.keys(groups).map(k => { const list = groups[k]; const m = get('mitra', list[0].mitra_id); let ak = 0;
-        const total = sum(list, h => h.nominal), lunas = sum(list.filter(h => h.lunas), h => h.nominal);
-        return `<div class="panel"><h3>${esc(m ? m.nama : 'Tanpa mitra')} — ${esc(list[0].keterangan || '')}</h3>
-          <div class="cards c3"><div class="card"><div class="label">Total</div><div class="value">${rp(total)}</div></div><div class="card"><div class="label">Sudah lunas</div><div class="value pos">${rp(lunas)}</div></div><div class="card"><div class="label">Sisa</div><div class="value neg">${rp(total - lunas)}</div></div></div>
-          <div class="table-wrap"><table><thead><tr><th>Bulan</th><th class="num">Cicilan ke</th><th class="num">Nominal</th><th class="num">Akumulasi</th><th>Lunas</th><th></th></tr></thead><tbody>
-          ${list.map(h => { ak += Number(h.nominal); return `<tr><td>${fmtBulan(h.bulan)}</td><td class="num">${h.cicilan_ke ?? ''}</td><td class="num">${rp(h.nominal)}</td><td class="num">${rp(ak)}</td>
-            <td><input type="checkbox" data-lunas="${h.id}" ${h.lunas ? 'checked' : ''} style="width:auto"> ${h.transaksi_id ? '<span class="badge ok">potong gaji</span>' : ''}</td><td><button class="btn small danger" data-del="${h.id}">Hapus</button></td></tr>`; }).join('')}
-          </tbody></table></div></div>`; }).join('') || '<div class="empty panel">Belum ada data hutang mitra</div>'}`;
+    const mitraIds = [...new Set(S.d.hutang_mitra.map(h => h.mitra_id || '-'))].sort((a, b) => mName(a === '-' ? null : a).localeCompare(mName(b === '-' ? null : b), 'id'));
+    // Urut per mitra, lalu keterangan
+    let keys = Object.keys(groups).sort((a, b) => { const [ma, ka] = a.split('|'), [mb, kb] = b.split('|');
+      return mName(ma === '-' ? null : ma).localeCompare(mName(mb === '-' ? null : mb), 'id') || ka.localeCompare(kb, 'id'); });
+    if (f.mitra) keys = keys.filter(k => k.split('|')[0] === f.mitra);
+    const allPaid = k => groups[k].every(h => h.lunas);
+    const hiddenGroups = f.lunas ? 0 : keys.filter(allPaid).length;
+    if (!f.lunas) keys = keys.filter(k => !allPaid(k));
+    const nowM = curYM();
+    el.innerHTML = `<p class="hint">Cicilan otomatis ditandai lunas saat gaji akhir bulan dicairkan, dan nominalnya dipotong dari gaji bulan itu.</p>
+      <div class="toolbar">
+        <label>Mitra<select id="hMitra">${opt('', 'Semua mitra')}${mitraIds.map(id => opt(id, mName(id === '-' ? null : id), id === f.mitra)).join('')}</select></label>
+        <label class="check inline" style="align-self:end"><input type="checkbox" id="hLunas" ${f.lunas ? 'checked' : ''}> Tampilkan cicilan lunas</label>
+        <span class="spacer"></span>
+        <button class="btn rw" id="addOne">+ Tambah cicilan</button><button class="btn primary rw" id="addPlan">+ Buat jadwal cicilan</button>
+      </div>
+      ${keys.map(k => { const list = groups[k]; let ak = 0;
+        const total = sum(list, h => h.nominal), lunas = sum(list.filter(h => h.lunas), h => h.nominal), nL = list.filter(h => h.lunas).length;
+        const rows = list.map(h => { ak += Number(h.nominal); return { h, ak }; }).filter(x => f.lunas || !x.h.lunas);
+        const pct = total ? Math.round(lunas / total * 100) : 0;
+        return `<div class="panel hut">
+          <div class="hut-head"><div><b>${esc(mName(list[0].mitra_id))}</b><div class="muted small">${esc(list[0].keterangan || 'Cicilan')}</div></div>
+            <div class="hut-sisa"><span class="muted small">Sisa</span><b class="${total - lunas ? 'neg' : 'pos'}">${rp(total - lunas)}</b></div></div>
+          <div class="hut-prog"><div style="width:${pct}%"></div></div>
+          <div class="hut-meta muted small"><span>Total ${rp(total)}</span><span>Lunas ${rp(lunas)} · ${nL}/${list.length} cicilan</span></div>
+          <div class="hut-list">${rows.map(({ h, ak: a }) => `<div class="hut-row ${h.lunas ? 'paid' : ''} ${!h.lunas && h.bulan < nowM ? 'late' : ''}">
+              <div class="hr-main"><b>${fmtBulan(h.bulan)}</b><span class="muted small">Cicilan ke-${h.cicilan_ke ?? '-'} · akumulasi ${rp(a)}</span></div>
+              <div class="hr-amt">${rp(h.nominal)}</div>
+              <div class="hr-act">
+                <label class="hr-lunas ${h.lunas ? 'on' : ''}"><input type="checkbox" data-lunas="${h.id}" ${h.lunas ? 'checked' : ''} ${canWrite() ? '' : 'disabled'}> ${h.lunas ? (h.transaksi_id ? 'Lunas · potong gaji' : 'Lunas') : 'Belum'}</label>
+                <button class="btn small danger rw" data-del="${h.id}" aria-label="Hapus cicilan">Hapus</button></div>
+            </div>`).join('') || '<div class="muted small" style="padding:8px 0">Semua cicilan sudah lunas.</div>'}</div>
+        </div>`; }).join('') || `<div class="empty panel">${S.d.hutang_mitra.length ? 'Tidak ada cicilan yang belum lunas.' : 'Belum ada data hutang mitra'}</div>`}
+      ${hiddenGroups ? `<p class="hint">${hiddenGroups} pinjaman yang sudah lunas disembunyikan. Centang "Tampilkan cicilan lunas" untuk melihatnya.</p>` : ''}`;
+    $('#hMitra', el).onchange = e => { f.mitra = e.target.value; rerender(); };
+    $('#hLunas', el).onchange = e => { f.lunas = e.target.checked; rerender(); };
     const mitraOpts = S.d.mitra.filter(m => m.aktif && !(m.tgl_resign && m.tgl_resign <= todayISO())).sort((a, b) => a.nama.localeCompare(b.nama)).map(m => opt(m.id, `${m.nama}${m.posisi ? ' (' + m.posisi + ')' : ''}`)).join('');
     $('#addOne', el).onclick = () => openModal('Tambah cicilan', `<form id="hf"><div class="form-grid">
         <label>Mitra<select name="mitra_id">${mitraOpts}</select></label><label>Keterangan<input name="keterangan" value="Cicilan pinjaman"></label>
@@ -1658,7 +1730,13 @@
     $('#menuBtn').onclick = () => { $('#sidebar').classList.add('open'); $('#backdrop').classList.add('show'); };
     $('#backdrop').onclick = () => { $('#sidebar').classList.remove('open'); $('#backdrop').classList.remove('show'); };
     $('#logoutBtn').onclick = async () => { await DB.signOut(); S.me = null; location.hash = ''; showLogin(); };
-    window.addEventListener('hashchange', () => { if (S.me) route(); });
+    // Setiap pindah menu: ambil data terbaru dulu, lalu tampilkan halaman
+    window.addEventListener('hashchange', async () => {
+      if (!S.me) return;
+      busy(true, 'Memuat data...');
+      try { await loadAll(); } catch (e) { console.warn('reload', e); } finally { busy(false); }
+      route();
+    });
     $('#loginForm').onsubmit = async e => {
       e.preventDefault(); if (DB.demo) return;
       const fd = new FormData(e.target);
