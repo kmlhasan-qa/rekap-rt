@@ -635,11 +635,12 @@
     function draw(showAll) {
       const q = showAll ? '' : input.value.trim().toLowerCase();
       const qk = nk(q);
-      items = pool.filter(r => !q || nk(r.kode).startsWith(qk) || nk(r.kode).includes(qk) || (r.nama || '').toLowerCase().includes(q) || rumahLabel(r).toLowerCase().includes(q))
+      const rekNama = r => { const x = get('rumah_rekening', r.id); return x && x.nama_rekening ? x.nama_rekening : ''; };
+      items = pool.filter(r => !q || nk(r.kode).startsWith(qk) || nk(r.kode).includes(qk) || (r.nama || '').toLowerCase().includes(q) || rumahLabel(r).toLowerCase().includes(q) || rekNama(r).toLowerCase().includes(q))
         .sort((a, b) => { if (!q) return 0; const sc = r => nk(r.kode) === qk ? 2 : nk(r.kode).startsWith(qk) ? 1 : 0; return sc(b) - sc(a); });
       act = items.length ? 0 : -1;
       list.innerHTML = items.length ? items.slice(0, 80).map((r, i) => `<div class="combo-item ${i === act ? 'act' : ''} ${current && r.id === current.id ? 'sel' : ''}" role="option" data-i="${i}">
-          <span class="ck">${esc(r.kode)}</span><span class="cn">${esc(r.nama || '')}</span>${info(r)}</div>`).join('')
+          <span class="ck">${esc(r.kode)}</span><span class="cn">${esc(r.nama || '')}${q && rekNama(r).toLowerCase().includes(q) && !(r.nama || '').toLowerCase().includes(q) ? `<small class="cr">Rek: ${esc(rekNama(r))}${(get('rumah_rekening', r.id) || {}).bank ? ' · ' + esc(get('rumah_rekening', r.id).bank) : ''}</small>` : ''}</span>${info(r)}</div>`).join('')
         + (items.length > 80 ? `<div class="combo-more">+${items.length - 80} lainnya, ketik lebih spesifik</div>` : '')
         : '<div class="combo-more">Rumah tidak ditemukan</div>';
       list.classList.remove('hidden'); input.setAttribute('aria-expanded', 'true');
@@ -704,7 +705,7 @@
     if (tipe === 'iuran') {
       const r = ex ? get('rumah', ex.rumah_id) : null;
       html += `<div class="field combo"><span>Rumah</span>
-          <div class="combo-box"><input name="rumah" required placeholder="Cari kode / nama, mis. 1/26 atau Purnomo" value="${esc(r ? rumahLabel(r) : '')}" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="rumahList" aria-autocomplete="list">
+          <div class="combo-box"><input name="rumah" required placeholder="Cari kode / nama / nama rekening" value="${esc(r ? rumahLabel(r) : '')}" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="rumahList" aria-autocomplete="list">
             <button type="button" class="combo-clear ${r ? '' : 'hidden'}" aria-label="Kosongkan">&times;</button></div>
           <div class="combo-list hidden" id="rumahList" role="listbox"></div></div>
         <label>Jenis bayar<select name="dompet_id">${dompetOpts(defDompet)}</select></label>
@@ -1141,10 +1142,22 @@
     }
     const M = MASTER[tab];
     const rows = S.d[M.table];
-    box.innerHTML = `<div class="toolbar"><span class="muted">${rows.length} data</span><span class="spacer"></span><button class="btn primary" id="addBtn">+ Tambah</button></div>
+    const mq = (S.mQ || (S.mQ = {}))[tab] || '';
+    const extra = r => { if (M.table !== 'rumah') return ''; const x = get('rumah_rekening', r.id) || {}; return [x.bank, x.nama_rekening, x.no_hp].filter(Boolean).join(' '); };
+    box.innerHTML = `<div class="toolbar m-search"><label class="m-q">Cari<input id="mQ" type="search" value="${esc(mq)}" placeholder="Ketik untuk mencari di ${esc(M.label)}" autocomplete="off"></label>
+        <span class="muted" id="mCount">${rows.length} data</span><span class="spacer"></span><button class="btn primary" id="addBtn">+ Tambah</button></div>
       <div class="table-wrap"><table><thead><tr>${M.cols.map(c => `<th>${c[1]}</th>`).join('')}<th></th></tr></thead>
-      <tbody>${rows.map(r => `<tr>${M.cols.map(c => `<td>${c[2] ? c[2](r[c[0]], r) : esc(r[c[0]])}</td>`).join('')}
+      <tbody>${rows.map(r => `<tr data-s="${esc(extra(r))}">${M.cols.map(c => `<td>${c[2] ? c[2](r[c[0]], r) : esc(r[c[0]])}</td>`).join('')}
         <td><div class="row-actions"><button class="btn small" data-edit="${r.id}">Edit</button><button class="btn small danger" data-del="${r.id}">Hapus</button></div></td></tr>`).join('') || `<tr><td colspan="${M.cols.length + 1}" class="empty">Belum ada data</td></tr>`}</tbody></table></div>`;
+    // Pencarian langsung (tanpa memuat ulang halaman): cocokkan semua kolom, termasuk bank, nama rekening & no HP
+    const qIn = $('#mQ', box), trs = $$('tbody tr[data-s]', box);
+    const applyQ = () => {
+      const q = qIn.value.trim().toLowerCase(); S.mQ[tab] = qIn.value; let n = 0;
+      const nk = v => String(v || '').toLowerCase().replace(/^\s*kb\s*/, '').replace(/\s+/g, '');
+      trs.forEach(tr => { const txt = (tr.textContent + ' ' + tr.dataset.s).toLowerCase(); const ok = !q || q.split(/\s+/).every(w => txt.includes(w)) || (M.table === 'rumah' && nk(tr.cells[0].textContent).startsWith(nk(q))); tr.style.display = ok ? '' : 'none'; if (ok) n++; });
+      $('#mCount', box).textContent = q ? `${n} dari ${rows.length} data` : `${rows.length} data`;
+    };
+    qIn.addEventListener('input', applyQ); if (mq) applyQ();
     $('#addBtn', box).onclick = () => masterForm(M, null);
     $$('[data-edit]', box).forEach(b => b.onclick = () => masterForm(M, get(M.table, b.dataset.edit)));
     $$('[data-del]', box).forEach(b => b.onclick = async () => {
