@@ -277,7 +277,9 @@
     const rows = [];
     // Iuran dicatat sebagai pemasukan di BULAN IURAN-nya (bukan tanggal bayar). Tanda lunas hasil migrasi (nilai 0) tidak dihitung.
     const trxMap = new Map(S.d.transaksi.map(t => [t.id, t]));
-    const iuranUntuk = (ym, setelah) => sum(S.d.iuran_bulan.filter(b => { if (b.bulan !== ym) return false; const t = trxMap.get(b.transaksi_id); return t && t.nilai > 0 && (!setelah || t.tanggal > setelah); }), b => Number(b.nominal));
+    // Iuran yang dibayar s.d. akhir bulan terakhir sheet sudah terhitung di Ringkasan sheet (per tanggal bayar), jadi tidak dihitung lagi.
+    const sudahDiSheet = cutoff ? cutoff + '-31' : '';
+    const iuranUntuk = ym => sum(S.d.iuran_bulan.filter(b => { if (b.bulan !== ym) return false; const t = trxMap.get(b.transaksi_id); return t && t.nilai > 0 && (!sudahDiSheet || t.tanggal > sudahDiSheet); }), b => Number(b.nominal));
     const nonIuran = ym => sum(S.d.transaksi.filter(t => t.tipe === 'pemasukan' && (t.bulan || t.tanggal.slice(0, 7)) === ym), t => t.nilai);
     // Bulan yang belum berjalan (khusus admin): berdasarkan bulan pembebanan
     const futureRow = ym => {
