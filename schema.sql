@@ -251,11 +251,12 @@ alter table public.transaksi add constraint transaksi_komponen_check
   check (komponen in ('gaji_tengah','gaji','kasbon','lembur','thr','lainnya'));
 
 -- Ringkasan untuk laporan Gaji Mitra (bisa dibaca warga tanpa membuka data hutang/kedatangan)
+alter table public.hutang_mitra add column if not exists bayar_terpisah boolean not null default false;
 create or replace function public.potongan_gaji()
 returns table(mitra_id uuid, bulan text, nominal numeric)
 language sql stable security definer set search_path = public as $$
   select h.mitra_id, h.bulan::text, sum(h.nominal) from public.hutang_mitra h
-  where public.is_member() and h.mitra_id is not null  -- semua cicilan bulan itu dihitung sebagai bagian gaji
+  where public.is_member() and h.mitra_id is not null and not coalesce(h.bayar_terpisah, false)  -- cicilan bulan itu dihitung sebagai potongan gaji, kecuali yang dibayar terpisah
   group by h.mitra_id, h.bulan;
 $$;
 create or replace function public.kedatangan_bulan()

@@ -237,7 +237,7 @@
       async rpc(name) {
         const grp = (rows, val) => { const m = new Map(); rows.forEach(r => { const k = r.mitra_id + '|' + r.bulan; m.set(k, (m.get(k) || 0) + val(r)); });
           return [...m].map(([k, v]) => ({ mitra_id: k.split('|')[0], bulan: k.split('|')[1], v })); };
-        if (name === 'potongan_gaji') return grp(db.hutang_mitra.filter(h => h.mitra_id), h => Number(h.nominal)).map(x => ({ mitra_id: x.mitra_id, bulan: x.bulan, nominal: x.v }));
+        if (name === 'potongan_gaji') return grp(db.hutang_mitra.filter(h => h.mitra_id && !h.bayar_terpisah), h => Number(h.nominal)).map(x => ({ mitra_id: x.mitra_id, bulan: x.bulan, nominal: x.v }));
         if (name === 'kedatangan_bulan') return grp(db.kedatangan_mitra, () => 1).map(x => ({ mitra_id: x.mitra_id, bulan: x.bulan, jumlah: x.v }));
         return [];
       },

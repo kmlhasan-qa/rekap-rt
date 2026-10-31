@@ -1235,7 +1235,8 @@
               <div class="hr-main"><b>${fmtBulan(h.bulan)}</b><span class="muted small">Cicilan ke-${h.cicilan_ke ?? '-'} · akumulasi ${rp(a)}</span></div>
               <div class="hr-amt">${rp(h.nominal)}</div>
               <div class="hr-act">
-                <label class="hr-lunas ${h.lunas ? 'on' : ''}"><input type="checkbox" data-lunas="${h.id}" ${h.lunas ? 'checked' : ''} ${canWrite() ? '' : 'disabled'}> ${h.lunas ? (h.transaksi_id ? 'Lunas · potong gaji' : 'Lunas') : 'Belum'}</label>
+                <label class="hr-lunas ${h.lunas ? 'on' : ''}"><input type="checkbox" data-lunas="${h.id}" ${h.lunas ? 'checked' : ''} ${canWrite() ? '' : 'disabled'}> ${h.lunas ? (h.transaksi_id ? 'Lunas · potong gaji' : h.bayar_terpisah ? 'Lunas · dibayar terpisah' : 'Lunas') : 'Belum'}</label>
+                ${h.lunas && !h.transaksi_id ? `<button class="btn small rw" data-terpisah="${h.id}" title="${h.bayar_terpisah ? 'Hitung sebagai potongan gaji bulan ini' : 'Dibayar di luar gaji, tidak dihitung sebagai potongan gaji'}">${h.bayar_terpisah ? 'Jadikan potong gaji' : 'Dibayar terpisah'}</button>` : ''}
                 <button class="btn small danger rw" data-del="${h.id}" aria-label="Hapus cicilan">Hapus</button></div>
             </div>`).join('') || '<div class="muted small" style="padding:8px 0">Semua cicilan sudah lunas.</div>'}</div>
         </div>`; }).join('') || `<div class="empty panel">${S.d.hutang_mitra.length ? 'Tidak ada cicilan yang belum lunas.' : 'Belum ada data hutang mitra'}</div>`}
@@ -1274,7 +1275,9 @@
           if (await run(() => simpanKasbon({ mitraId: fd.mitra_id, tanggal: fd.tanggal, total, n: +fd.n || 1, mulai: fd.mulai, dompetId: fd.dompet_id, ket: fd.keterangan, catat: !!fd.catat }), 'Kasbon disimpan')) { closeModal(); rerender(); } };
       });
     };
-    $$('[data-lunas]', el).forEach(c => c.onchange = async () => { if (await run(async () => { await DB.update('hutang_mitra', c.dataset.lunas, c.checked ? { lunas: true } : { lunas: false, transaksi_id: null }); await reload('hutang_mitra'); })) rerender(); });
+    $$('[data-lunas]', el).forEach(c => c.onchange = async () => { if (await run(async () => { await DB.update('hutang_mitra', c.dataset.lunas, c.checked ? { lunas: true } : { lunas: false, transaksi_id: null, bayar_terpisah: false }); await reload('hutang_mitra'); })) rerender(); });
+    $$('[data-terpisah]', el).forEach(b => b.onclick = async () => { const h = get('hutang_mitra', b.dataset.terpisah);
+      if (await run(async () => { await DB.update('hutang_mitra', h.id, { bayar_terpisah: !h.bayar_terpisah }); await reload('hutang_mitra'); })) rerender(); });
     $$('[data-del]', el).forEach(b => b.onclick = async () => { if (await ask('Hapus cicilan ini?') && await run(async () => { await DB.remove('hutang_mitra', b.dataset.del); await reload('hutang_mitra'); })) rerender(); });
   }
 
