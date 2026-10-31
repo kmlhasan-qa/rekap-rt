@@ -339,14 +339,13 @@
           <div class="mhead"><b>${fmtBulan(r.ym)}${r.future ? ' <span class="badge warn">belum berjalan</span>' : ''}</b><span class="${r.selisih < 0 ? 'neg' : 'pos'}">${r.selisih > 0 ? '+' : ''}${rp2(r.selisih)}</span></div>
           <div class="mrow"><span>Pemasukan</span><span>${rp2(r.masuk)}</span></div>
           <div class="mrow"><span>Pengeluaran</span><span>${rp2(r.keluar)}</span></div>
-          ${r.saldo == null ? '' : `<div class="mrow strong"><span>Saldo akhir</span><span>${rp(r.saldo)}</span></div>`}
           </div>`).join('') || '<div class="empty">Belum ada data</div>'}</div>
       <div class="table-wrap desk-only"><table>
-        <thead><tr><th>Bulan</th><th class="num">Pemasukan</th><th class="num">Pengeluaran</th><th class="num">Selisih</th><th class="num">Saldo akhir</th></tr></thead>
+        <thead><tr><th>Bulan</th><th class="num">Pemasukan</th><th class="num">Pengeluaran</th><th class="num">Selisih</th></tr></thead>
         <tbody>${shown.slice().reverse().map(r => `<tr class="${r.future ? 'future-row' : ''}"><td>${fmtBulan(r.ym)}${r.future ? ' <span class="badge warn">belum berjalan</span>' : ''}</td><td class="num">${rp2(r.masuk)}</td>
-          <td class="num">${rp2(r.keluar)}</td><td class="num ${r.selisih < 0 ? 'neg' : 'pos'}">${rp2(r.selisih)}</td><td class="num">${rpx(r.saldo)}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">Belum ada data</td></tr>'}</tbody>
+          <td class="num">${rp2(r.keluar)}</td><td class="num ${r.selisih < 0 ? 'neg' : 'pos'}">${rp2(r.selisih)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">Belum ada data</td></tr>'}</tbody>
         <tfoot><tr class="total"><td>${mixed ? 'Total s.d. ' + fmtBulan(curYM()) : 'Total'}</td><td class="num">${rp2(sum(tot, r => r.masuk))}</td>
-          <td class="num">${rp2(sum(tot, r => r.keluar))}</td><td class="num">${rp2(sum(tot, r => r.selisih))}</td><td class="num"></td></tr></tfoot>
+          <td class="num">${rp2(sum(tot, r => r.keluar))}</td><td class="num">${rp2(sum(tot, r => r.selisih))}</td></tr></tfoot>
       </table></div>
       ${shown.some(r => r.future) ? `<p class="hint" style="margin-top:8px">${mixed ? `Bulan bertanda "belum berjalan" (${shown.filter(r => r.future).map(r => BULAN[+r.ym.slice(5) - 1]).join(', ')}) adalah perkiraan dan tidak masuk total.` : `Tahun ${y} belum berjalan.`} Pemasukan = iuran yang sudah dibayar dimuka untuk bulan tersebut; pengeluaran = yang dibebankan ke bulan tersebut. Cicilan hutang mitra yang akan dipotong: ${shown.filter(r => r.hutang).map(r => `${BLN[+r.ym.slice(5) - 1]} ${rp(r.hutang)}`).join(', ') || 'tidak ada'}. Hanya terlihat oleh admin.</p>` : ''}
       ${shown.some(r => r.sheet) ? `<p class="hint" style="margin-top:8px">Angka s.d. ${fmtBulan(ringkasanSheet().cutoff > '2026-09' ? '2026-09' : ringkasanSheet().cutoff)} diambil dari Ringkasan Google Sheet lama.</p>` : ''}
@@ -1703,9 +1702,9 @@
     // 1. Ringkasan
     const ring = ringkasanTahun(y).filter(r => !r.future || y > +curYM().slice(0, 4));
     const kasNow = y < +curYM().slice(0, 4) ? totalKas((y + 1) + '-01-01') : totalKas();
-    section(`Ringkasan bulan berjalan ${y}`, ['Bulan', 'Pemasukan', 'Pengeluaran', 'Selisih', 'Saldo akhir'],
-      ring.map(r => [fmtBulan(r.ym), right(r.masuk), right(r.keluar), right(r.selisih), right(r.saldo)]),
-      { sub: `${y < +curYM().slice(0, 4) ? 'Kas akhir ' + y : 'Kas berjalan (saat ini)'} ${rp(kasNow)}`, foot: [['Total', right(sum(ring, r => r.masuk)), right(sum(ring, r => r.keluar)), right(sum(ring, r => r.selisih)), '']] });
+    section(`Ringkasan bulan berjalan ${y}`, ['Bulan', 'Pemasukan', 'Pengeluaran', 'Selisih'],
+      ring.map(r => [fmtBulan(r.ym), right(r.masuk), right(r.keluar), right(r.selisih)]),
+      { sub: `${y < +curYM().slice(0, 4) ? 'Kas akhir ' + y : 'Kas berjalan (saat ini)'} ${rp(kasNow)}`, foot: [['Total', right(sum(ring, r => r.masuk)), right(sum(ring, r => r.keluar)), right(sum(ring, r => r.selisih))]] });
 
     // 2. Rekap bayar warga (lunas = hijau, sebagian = kuning, belum = abu-abu)
     const sym = { paid: 'L', partial: 'S', unpaid: 'B', future: '' };
