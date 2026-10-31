@@ -1776,15 +1776,7 @@
     const sty = { paid: { fillColor: [46, 139, 87], textColor: 255 }, partial: { fillColor: [244, 208, 63], textColor: 0 }, unpaid: { fillColor: [200, 200, 200], textColor: 0 }, future: {} };
     const body4 = S.d.rumah.filter(r => r.aktif || ms.some(m => S.paid.get(r.id + '|' + m))).map(r =>
       [rumahLabel(r), ...ms.map(m => { const s = statusBulan(r, m).s; return { content: sym[s], st: s, styles: Object.assign({ halign: 'center', fontStyle: 'bold' }, sty[s]) }; })]);
-    if (yPos > 170) { doc.addPage(); yPos = 14; }
-    { // keterangan simbol
-      let x = 14 + doc.getTextWidth('') ; doc.setFontSize(9); const ly = yPos + 4.6;
-      const leg = (kind, label, fill) => { doc.setFillColor(...fill); doc.rect(x, ly - 3, 5, 4, 'F'); if (kind === 'S') { doc.setTextColor(0); doc.setFont(undefined, 'bold'); doc.text('S', x + 1.6, ly); doc.setFont(undefined, 'normal'); } else drawMark(kind, x + 1.3, ly - 2.4, 2.6, kind === 'check' ? [255, 255, 255] : [0, 0, 0]); doc.setTextColor(60); doc.text(label, x + 6.5, ly); x += 6.5 + doc.getTextWidth(label) + 6; };
-      doc.setFontSize(12); doc.setTextColor(0); doc.text(`Rekap Bayar Warga ${y}`, 14, yPos); yPos += 2; doc.setFontSize(9);
-      leg('check', 'lunas', [46, 139, 87]); leg('S', 'sebagian', [244, 208, 63]); leg('cross', 'belum', [200, 200, 200]); doc.setTextColor(0);
-      yPos += 5;
-    }
-    section('', ['Rumah', ...BLN], body4,
+    section(`Rekap Bayar Warga ${y}`, ['Rumah', ...BLN], body4,
       { styles: { fontSize: 7.5, cellPadding: 1.2, lineColor: 255, lineWidth: 0.3 }, columnStyles: { 0: { cellWidth: 70 } },
         // garis bantu horizontal di bawah setiap baris
         didDrawCell: d => { if (d.section !== 'body') return;
