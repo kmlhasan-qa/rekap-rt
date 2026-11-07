@@ -279,6 +279,9 @@
     // Iuran dicatat sebagai pemasukan di BULAN IURAN-nya (bukan tanggal bayar). Tanda lunas hasil migrasi (nilai 0) tidak dihitung.
     const trxMap = new Map(S.d.transaksi.map(t => [t.id, t]));
     const iuranUntuk = ym => sum(S.d.iuran_bulan.filter(b => { if (b.bulan !== ym) return false; const t = trxMap.get(b.transaksi_id); return t && t.nilai > 0; }), b => Number(b.nominal));
+    // Migrasi dari Google Sheet selesai 28 Okt 2026 16:38 UTC. Transaksi yang dibuat setelahnya belum ada di angka sheet.
+    const MIGRASI_SELESAI = Date.parse('2026-10-28T16:40:00Z');
+    const iuranSetelahMigrasi = ym => sum(S.d.iuran_bulan.filter(b => { if (b.bulan !== ym) return false; const t = trxMap.get(b.transaksi_id); return t && t.nilai > 0 && Date.parse(t.created_at) > MIGRASI_SELESAI; }), b => Number(b.nominal));
     const nonIuran = ym => sum(S.d.transaksi.filter(t => t.tipe === 'pemasukan' && (t.bulan || t.tanggal.slice(0, 7)) === ym), t => t.nilai);
     // Bulan yang belum berjalan (khusus admin): berdasarkan bulan pembebanan
     const futureRow = ym => {
@@ -296,7 +299,10 @@
       if (cutoff && ym <= cutoff) {
         const m = mb[ym]; if (!m) return;
         // Bulan s.d. September 2026: sama persis dengan Ringkasan di Google Sheet
-        rows.push({ ym, sheet: true, masuk: m.masuk, keluar: m.keluar, selisih: m.selisih != null ? m.selisih : m.masuk - m.keluar, saldo: m.saldo });
+        // Ditambah iuran untuk bulan ini yang baru diinput di aplikasi setelah migrasi (sheet lama tidak memuatnya)
+        const tambahan = iuranSetelahMigrasi(ym);
+        const selisihSheet = m.selisih != null ? m.selisih : m.masuk - m.keluar;
+        rows.push({ ym, sheet: true, masuk: m.masuk + tambahan, keluar: m.keluar, selisih: selisihSheet + tambahan, saldo: m.saldo, tambahan });
         return;
       }
       const iuran = iuranUntuk(ym), non = nonIuran(ym);
