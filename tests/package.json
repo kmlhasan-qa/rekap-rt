@@ -1,0 +1,14 @@
+{
+  "name": "rekap-rt-tests",
+  "private": true,
+  "description": "Automated tests for Rekap Keuangan RT (unit, UI in jsdom demo mode, database RLS on a throwaway Postgres)",
+  "scripts": {
+    "test": "node --test --test-concurrency=1 \"unit/*.test.js\" \"ui/*.test.js\" \"db/*.test.js\"",
+    "test:unit": "node --test \"unit/*.test.js\"",
+    "test:ui": "node --test --test-concurrency=1 \"ui/*.test.js\"",
+    "test:db": "node --test \"db/*.test.js\""
+  },
+  "devDependencies": {
+    "jsdom": "24.1.3"
+  }
+}
