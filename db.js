@@ -74,8 +74,10 @@
     db = load() || seed();
     save();
     let me = null;
-    const audit = (aksi, lama, baru) => {
-      db.audit_log.unshift({ id: Date.now() + Math.random(), waktu: new Date().toISOString(), user_id: me && me.id, aksi, tabel: 'transaksi', data_lama: lama, data_baru: baru });
+    // Tabel yang diaudit (sama dengan trigger di schema.sql)
+    const AUDITED = ['transaksi', 'dompet', 'rumah', 'mitra', 'iuran_bulan', 'hutang_mitra', 'kedatangan_mitra'];
+    const audit = (aksi, lama, baru, tabel = 'transaksi') => {
+      db.audit_log.unshift({ id: Date.now() + Math.random(), waktu: new Date().toISOString(), user_id: me && me.id, aksi, tabel, data_lama: lama, data_baru: baru });
       db.audit_log = db.audit_log.slice(0, 500);
     };
     const adminOnly = ['rumah_rekening', 'hutang_mitra', 'kedatangan_mitra', 'catatan', 'audit_log', 'profiles'];
@@ -196,7 +198,8 @@
         const arr = (Array.isArray(rows) ? rows : [rows]).map(r => Object.assign({}, r));
         arr.forEach(r => {
           if (keyOf(t) === 'id' && !r.id) r.id = uid();
-          if (t === 'transaksi') { r.created_at = new Date().toISOString(); audit('INSERT', null, r); }
+          if (t === 'transaksi') r.created_at = new Date().toISOString();
+          if (AUDITED.includes(t)) audit('INSERT', null, Object.assign({}, r), t);
           db[t].push(r);
         });
         save();
@@ -219,7 +222,7 @@
         if (!row) throw new Error('Data tidak ditemukan');
         const lama = Object.assign({}, row);
         Object.assign(row, patch);
-        if (t === 'transaksi') audit('UPDATE', lama, Object.assign({}, row));
+        if (AUDITED.includes(t)) audit('UPDATE', lama, Object.assign({}, row), t);
         save();
         return Object.assign({}, row);
       },
@@ -229,7 +232,8 @@
         db[t] = db[t] || [];
         const row = db[t].find(x => x[k] === id);
         db[t] = db[t].filter(x => x[k] !== id);
-        if (t === 'transaksi') { db.iuran_bulan = db.iuran_bulan.filter(x => x.transaksi_id !== id); audit('DELETE', row, null); }
+        if (t === 'transaksi') db.iuran_bulan = db.iuran_bulan.filter(x => x.transaksi_id !== id);
+        if (AUDITED.includes(t) && row) audit('DELETE', row, null, t);
         if (t === 'rumah') db.rumah_rekening = db.rumah_rekening.filter(x => x.rumah_id !== id);
         save();
       },
@@ -237,7 +241,7 @@
       async rpc(name) {
         const grp = (rows, val) => { const m = new Map(); rows.forEach(r => { const k = r.mitra_id + '|' + r.bulan; m.set(k, (m.get(k) || 0) + val(r)); });
           return [...m].map(([k, v]) => ({ mitra_id: k.split('|')[0], bulan: k.split('|')[1], v })); };
-        if (name === 'potongan_gaji') return grp(db.hutang_mitra.filter(h => h.mitra_id && !h.bayar_terpisah), h => Number(h.nominal)).map(x => ({ mitra_id: x.mitra_id, bulan: x.bulan, nominal: x.v }));
+        if (name === 'potongan_gaji') return grp(db.hutang_mitra.filter(h => h.mitra_id && !h.bayar_terpisah), h => Number(h.nominal)).map(x => ({ mitra_id: x.mitra_id, bulan: x.bulan, nominal: me && ['admin', 'viewer'].includes(me.role) ? x.v : null })); // sama dengan schema.sql: nominal hanya untuk admin/viewer
         if (name === 'kedatangan_bulan') return grp(db.kedatangan_mitra, () => 1).map(x => ({ mitra_id: x.mitra_id, bulan: x.bulan, jumlah: x.v }));
         return [];
       },

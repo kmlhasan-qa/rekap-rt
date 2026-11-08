@@ -252,10 +252,11 @@ alter table public.transaksi add constraint transaksi_komponen_check
 
 -- Ringkasan untuk laporan Gaji Mitra (bisa dibaca warga tanpa membuka data hutang/kedatangan)
 alter table public.hutang_mitra add column if not exists bayar_terpisah boolean not null default false;
+-- Warga hanya perlu tahu bulan mana ada potongan; nominal cicilan hanya untuk admin/viewer (null untuk warga).
 create or replace function public.potongan_gaji()
 returns table(mitra_id uuid, bulan text, nominal numeric)
 language sql stable security definer set search_path = public as $$
-  select h.mitra_id, h.bulan::text, sum(h.nominal) from public.hutang_mitra h
+  select h.mitra_id, h.bulan::text, case when public.is_staff() then sum(h.nominal) end from public.hutang_mitra h
   where public.is_member() and h.mitra_id is not null and not coalesce(h.bayar_terpisah, false)  -- cicilan bulan itu dihitung sebagai potongan gaji, kecuali yang dibayar terpisah
   group by h.mitra_id, h.bulan;
 $$;
@@ -300,3 +301,68 @@ on conflict (nama) do nothing;
 alter table public.profiles drop constraint if exists profiles_role_check;
 alter table public.profiles add constraint profiles_role_check check (role in ('admin','viewer','warga'));
 -- Contoh: update public.profiles set role = 'viewer' where email = 'admin_view@sherwood.com';
+
+-- =====================================================================
+-- Pembaruan 2026-11: audit, integritas data, hak akses fungsi
+-- (aman dijalankan ulang di database yang sudah berisi data)
+-- =====================================================================
+
+-- Audit untuk perubahan yang memengaruhi saldo/tagihan di luar tabel transaksi
+create or replace function public.audit_row()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if tg_op = 'UPDATE' and to_jsonb(old) = to_jsonb(new) then return null; end if;
+  insert into public.audit_log (user_id, aksi, tabel, data_lama, data_baru)
+  values (auth.uid(), tg_op, tg_table_name,
+          case when tg_op in ('UPDATE','DELETE') then to_jsonb(old) end,
+          case when tg_op in ('INSERT','UPDATE') then to_jsonb(new) end);
+  return null;
+end $$;
+
+do $$
+declare t text;
+begin
+  foreach t in array array['dompet','rumah','mitra','iuran_bulan','hutang_mitra','kedatangan_mitra'] loop
+    execute format('drop trigger if exists %I on public.%I', 'trg_audit_'||t, t);
+    execute format('create trigger %I after insert or update or delete on public.%I for each row execute function public.audit_row()', 'trg_audit_'||t, t);
+  end loop;
+end $$;
+
+-- Batasan integritas. Ditambahkan NOT VALID agar baris lama yang mungkin melanggar tidak
+-- menggagalkan skrip; baris baru tetap diperiksa. Lalu dicoba divalidasi: jika ada data lama
+-- yang melanggar, muncul NOTICE dan batasan tetap berlaku untuk data baru.
+do $$
+declare
+  c record;
+begin
+  for c in select * from (values
+    ('rumah',            'rumah_ipl_nonneg',          'ipl >= 0'),
+    ('mitra',            'mitra_gaji_nonneg',         'gaji_pokok >= 0'),
+    ('iuran_bulan',      'iuran_bulan_nominal_nonneg','nominal >= 0'),
+    ('hutang_mitra',     'hutang_mitra_nominal_nonneg','nominal >= 0'),
+    ('transaksi',        'transaksi_mutasi_tujuan',   $c$tipe <> 'mutasi' or (dompet_tujuan_id is not null and dompet_tujuan_id <> dompet_id)$c$),
+    ('transaksi',        'transaksi_iuran_rumah',     $c$tipe <> 'iuran' or rumah_id is not null$c$),
+    ('transaksi',        'transaksi_bulan_valid',     $c$bulan ~ '^\d{4}-(0[1-9]|1[0-2])$'$c$),
+    ('iuran_bulan',      'iuran_bulan_bulan_valid',   $c$bulan ~ '^\d{4}-(0[1-9]|1[0-2])$'$c$),
+    ('hutang_mitra',     'hutang_mitra_bulan_valid',  $c$bulan ~ '^\d{4}-(0[1-9]|1[0-2])$'$c$),
+    ('kedatangan_mitra', 'kedatangan_mitra_bulan_valid', $c$bulan ~ '^\d{4}-(0[1-9]|1[0-2])$'$c$)
+  ) as v(tbl, nama, cek) loop
+    execute format('alter table public.%I drop constraint if exists %I', c.tbl, c.nama);
+    execute format('alter table public.%I add constraint %I check (%s) not valid', c.tbl, c.nama, c.cek);
+    begin
+      execute format('alter table public.%I validate constraint %I', c.tbl, c.nama);
+    exception when check_violation then
+      raise notice 'Ada data lama di % yang melanggar %; batasan tetap berlaku untuk data baru. Cek: select * from public.% where not (%);', c.tbl, c.nama, c.tbl, c.cek;
+    end;
+  end loop;
+end $$;
+
+-- Fungsi security definer: jangan bisa dipanggil anonim (Supabase advisor 0028/0029).
+-- is_admin/is_staff/is_member tetap bisa dieksekusi karena dipakai di kebijakan RLS.
+revoke execute on function public.potongan_gaji()    from public, anon;
+revoke execute on function public.kedatangan_bulan() from public, anon;
+revoke execute on function public.handle_new_user()  from public, anon, authenticated;
+revoke execute on function public.audit_transaksi()  from public, anon, authenticated;
+revoke execute on function public.audit_row()        from public, anon, authenticated;
+grant execute on function public.potongan_gaji()    to authenticated;
+grant execute on function public.kedatangan_bulan() to authenticated;

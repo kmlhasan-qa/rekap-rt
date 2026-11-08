@@ -152,6 +152,7 @@
     if (ipl > 0 && paid >= ipl) return { s: 'paid', paid };
     if (paid > 0) return { s: ipl > 0 && isAdmin() ? 'partial' : 'paid', paid };
     if (ym > curYM() || ym < mulaiTagih()) return { s: 'future', paid };
+    if (!(ipl > 0)) return { s: 'paid', paid }; // rumah bebas IPL (IPL 0) tidak dianggap menunggak
     return { s: 'unpaid', paid };
   }
   function tunggakan(r) {
@@ -853,7 +854,7 @@
       const fd = Object.fromEntries(new FormData(form));
       const row = { tipe, tanggal: fd.tanggal, nilai: parseRp(fd.nilai), dompet_id: fd.dompet_id, keterangan: (fd.keterangan || '').trim(),
         dompet_tujuan_id: null, kategori_id: null, rumah_id: null, mitra_id: null, komponen: null, bulan: fd.bulan || fd.tanggal.slice(0, 7) };
-      if (!row.nilai) return warn('Nilai harus lebih dari 0.');
+      if (!(row.nilai > 0)) return warn('Nilai harus lebih dari 0.');
       let rumah, months, alloc;
       if (tipe === 'iuran') {
         rumah = curRumah();
@@ -1102,8 +1103,13 @@
       const t = get('transaksi', b.dataset.edit);
       openModal('Edit ' + TIPE_LABEL[t.tipe], '<div id="editBox"></div>', body => trxForm($('#editBox', body), t.tipe, t, rerender));
     });
-    // Hapus transaksi: cicilan hutang & kedatangan yang terkait dikembalikan ke belum dibayar
+    // Hapus transaksi: cicilan hutang & kedatangan yang dibayar lewat gaji ini dikembalikan ke belum dibayar.
+    // Jika yang dihapus adalah pengeluaran kasbon, cicilan yang belum lunas dari kasbon itu ikut dihapus
+    // agar tidak terus dipotong dari gaji.
+    const cicilanKasbon = ts => { const ids = new Set(ts.map(t => t.id)); return S.d.hutang_mitra.filter(h => h.sumber_id && ids.has(h.sumber_id) && !h.lunas); };
+    const infoKasbon = ts => { const hs = cicilanKasbon(ts); return hs.length ? ` ${hs.length} cicilan kasbon yang belum lunas (total ${rp(sum(hs, h => Number(h.nominal)))}) juga akan dihapus dari jadwal potong gaji.` : ''; };
     const delTrx = async t => {
+      for (const h of cicilanKasbon([t])) await DB.remove('hutang_mitra', h.id);
       for (const h of S.d.hutang_mitra.filter(h => h.transaksi_id === t.id)) await DB.update('hutang_mitra', h.id, { lunas: false, transaksi_id: null });
       for (const v of S.d.kedatangan_mitra.filter(v => v.transaksi_id === t.id)) await DB.update('kedatangan_mitra', v.id, { transaksi_id: null });
       await DB.remove('transaksi', t.id);
@@ -1111,7 +1117,7 @@
     const reloadAll = () => reload('transaksi', 'iuran_bulan', 'hutang_mitra', 'kedatangan_mitra');
     $$('[data-del]', el).forEach(b => b.onclick = async () => {
       const t = get('transaksi', b.dataset.del);
-      if (!await ask(`Hapus transaksi ${TIPE_LABEL[t.tipe]} ${rp(t.nilai)} tanggal ${fmtTgl(t.tanggal)}?`)) return;
+      if (!await ask(`Hapus transaksi ${TIPE_LABEL[t.tipe]} ${rp(t.nilai)} tanggal ${fmtTgl(t.tanggal)}?${infoKasbon([t])}`)) return;
       if (await run(async () => { await delTrx(t); sel.delete(t.id); await reloadAll(); }, 'Transaksi dihapus', 'Menghapus...')) rerender();
     });
     $$('[data-sel]', el).forEach(c => c.onchange = () => { c.checked ? sel.add(c.dataset.sel) : sel.delete(c.dataset.sel); rerender(); });
@@ -1120,7 +1126,7 @@
     if ($('#selDel', el)) $('#selDel', el).onclick = async () => {
       const ts = S.d.transaksi.filter(t => sel.has(t.id));
       if (!ts.length) return;
-      if (!await ask(`Hapus ${ts.length} transaksi terpilih (total ${rp(sum(ts, t => t.nilai))})? Tindakan ini tidak bisa dibatalkan.`)) return;
+      if (!await ask(`Hapus ${ts.length} transaksi terpilih (total ${rp(sum(ts, t => t.nilai))})?${infoKasbon(ts)} Tindakan ini tidak bisa dibatalkan.`)) return;
       let n = 0;
       const ok = await run(async () => {
         for (const t of ts) { await delTrx(t); sel.delete(t.id); n++; $('#busyMsg').textContent = `Menghapus ${n}/${ts.length}...`; }
@@ -1219,6 +1225,9 @@
           if (t === 'money') v = parseRp(v); else if (t === 'number') v = v === '' ? 0 : +v; else if (t === 'bool') v = v === '1'; else if (t === 'date') v = v || null; else v = (v || '').trim();
           (f[4] === 'rek' ? rekRow : row)[f[0]] = v;
         });
+        // IPL dan gaji tidak boleh negatif (saldo awal dompet boleh)
+        const neg = M.fields.find(f => f[2] === 'money' && f[0] !== 'saldo_awal' && row[f[0]] < 0);
+        if (neg) return warn(`${neg[1]} tidak boleh negatif.`);
         const ok = await run(async () => {
           let id = r && r.id;
           if (r) await DB.update(M.table, id, row); else { id = uuid(); await DB.insert(M.table, Object.assign({ id }, row)); }
@@ -1317,7 +1326,7 @@
             + (f2.catat.checked ? ` Pengeluaran ikut dibagi per bulan cicilan; uang keluar dari kas pada ${fmtTgl(f2.tanggal.value)}.` : ' Hanya jadwal cicilan (tanpa pengeluaran), mis. untuk pinjaman lama.'); };
         [...f2.elements].forEach(x => { x.addEventListener('input', info); x.addEventListener('change', info); }); info();
         f2.onsubmit = async e => { e.preventDefault(); const fd = Object.fromEntries(new FormData(f2)); const total = parseRp(fd.total);
-          if (!total) return warn('Isi total kasbon.');
+          if (!(total > 0)) return warn('Isi total kasbon (lebih dari 0).');
           if (await run(() => simpanKasbon({ mitraId: fd.mitra_id, tanggal: fd.tanggal, total, n: +fd.n || 1, mulai: fd.mulai, dompetId: fd.dompet_id, ket: fd.keterangan, catat: !!fd.catat }), 'Kasbon disimpan')) { closeModal(); rerender(); } };
       });
     };
@@ -1379,10 +1388,21 @@
     el.innerHTML = '<div class="empty">Memuat...</div>';
     let list;
     try { list = await DB.list('audit_log', { order: 'waktu', desc: true, limit: 300 }); } catch (e) { el.innerHTML = `<div class="panel error">${esc(e.message)}</div>`; return; }
-    const ringkas = d => d ? `${TIPE_LABEL[d.tipe] || d.tipe} · ${fmtTgl(d.tanggal)} · ${rp(d.nilai)} · ${esc(d.keterangan || '')}` : '';
-    el.innerHTML = `<div class="table-wrap"><table><thead><tr><th>Waktu</th><th>Aksi</th><th>Sebelum</th><th>Sesudah</th></tr></thead><tbody>
-      ${list.map(a => `<tr><td>${new Date(a.waktu).toLocaleString('id-ID')}</td><td><span class="badge ${a.aksi === 'DELETE' ? 'bad' : a.aksi === 'INSERT' ? 'ok' : 'warn'}">${a.aksi}</span></td>
-        <td class="wrap small">${ringkas(a.data_lama)}</td><td class="wrap small">${ringkas(a.data_baru)}</td></tr>`).join('') || '<tr><td colspan="4" class="empty">Belum ada log</td></tr>'}
+    // Ringkasan per tabel (audit mencakup transaksi, dompet, rumah, mitra, iuran_bulan, hutang_mitra, kedatangan_mitra)
+    const nm = (t, id) => esc((get(t, id) || {}).nama || (get(t, id) || {}).kode || '');
+    const RINGKAS = {
+      transaksi: d => `${TIPE_LABEL[d.tipe] || esc(d.tipe)} · ${fmtTgl(d.tanggal)} · ${rp(Number(d.nilai))} · ${esc(d.keterangan || '')}`,
+      dompet: d => `${esc(d.nama)} · saldo awal ${rp(Number(d.saldo_awal))}${d.aktif === false ? ' · nonaktif' : ''}`,
+      rumah: d => `${esc(d.kode)} ${esc(d.nama || '')} · IPL ${rp(Number(d.ipl))}${d.aktif === false ? ' · nonaktif' : ''}`,
+      mitra: d => `${esc(d.nama)} · gaji ${rp(Number(d.gaji_pokok))}${d.aktif === false ? ' · nonaktif' : ''}`,
+      iuran_bulan: d => `${nm('rumah', d.rumah_id)} · ${fmtBulan(d.bulan)} · ${rp(Number(d.nominal))}`,
+      hutang_mitra: d => `${nm('mitra', d.mitra_id)} · ${fmtBulan(d.bulan)} · ${rp(Number(d.nominal))} · ${d.lunas ? 'lunas' : 'belum lunas'}${d.bayar_terpisah ? ' (dibayar terpisah)' : ''}`,
+      kedatangan_mitra: d => `${nm('mitra', d.mitra_id)} · ${fmtBulan(d.bulan)} · kedatangan ke-${esc(d.ke)}${d.transaksi_id ? ' · dibayar' : ''}`,
+    };
+    const ringkas = (t, d) => d ? (RINGKAS[t] ? RINGKAS[t](d) : esc(JSON.stringify(d))) : '';
+    el.innerHTML = `<div class="table-wrap"><table><thead><tr><th>Waktu</th><th>Aksi</th><th>Tabel</th><th>Sebelum</th><th>Sesudah</th></tr></thead><tbody>
+      ${list.map(a => `<tr><td>${new Date(a.waktu).toLocaleString('id-ID')}</td><td><span class="badge ${a.aksi === 'DELETE' ? 'bad' : a.aksi === 'INSERT' ? 'ok' : 'warn'}">${esc(a.aksi)}</span></td><td class="small">${esc(a.tabel || '')}</td>
+        <td class="wrap small">${ringkas(a.tabel, a.data_lama)}</td><td class="wrap small">${ringkas(a.tabel, a.data_baru)}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">Belum ada log</td></tr>'}
       </tbody></table></div>`;
   }
 
@@ -1412,10 +1432,26 @@
     const m = String(s || '').match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/); if (m) return `${m[3]}-${pad(m[2])}-${pad(m[1])}`;
     const m2 = String(s || '').match(/(\d{4})-(\d{2})-(\d{2})/); return m2 ? m2[0] : null;
   }
+  // Angka teks dari CSV/Sheet: "Rp150.000", "150,000", "1.500.000,50", "1,500,000.50", "41235.67".
+  // Pemisah yang muncul lebih dari sekali, atau diikuti tepat 3 angka, adalah ribuan; jika ada titik
+  // dan koma, yang terakhir adalah desimal. Sen (maks. 2 angka) dipertahankan.
   function parseNumText(s) {
-    let x = String(s || '').replace(/rp|\s/gi, '');
-    if (/^\d+(\.\d+)?$/.test(x)) return Math.round(parseFloat(x));
-    x = x.replace(/\./g, '').replace(',', '.'); const n = parseFloat(x); return isNaN(n) ? 0 : Math.round(n);
+    let x = String(s ?? '').replace(/rp|\s| /gi, '').replace(/[^\d.,-]/g, '');
+    const neg = x.startsWith('-'); x = x.replace(/-/g, '');
+    if (!/\d/.test(x)) return 0;
+    const lastDot = x.lastIndexOf('.'), lastCom = x.lastIndexOf(',');
+    let dec = null;
+    if (lastDot >= 0 && lastCom >= 0) dec = lastDot > lastCom ? '.' : ',';
+    else if (lastDot >= 0 || lastCom >= 0) {
+      const sep = lastDot >= 0 ? '.' : ',';
+      const parts = x.split(sep);
+      if (parts.length === 2 && parts[1].length !== 3) dec = sep;
+    }
+    let intPart = x, frac = '';
+    if (dec) { const i = x.lastIndexOf(dec); intPart = x.slice(0, i); frac = x.slice(i + 1); }
+    intPart = intPart.replace(/[.,]/g, '');
+    const n = parseFloat((intPart || '0') + (frac ? '.' + frac : ''));
+    return isNaN(n) ? 0 : (neg ? -1 : 1) * Math.round(n * 100) / 100;
   }
   const normKat = s => String(s || '').toLowerCase().replace(/[–—]/g, '-').replace(/\s+/g, ' ').trim();
 
@@ -1444,7 +1480,7 @@
       try {
         if (tipe.startsWith('pemasukan')) {
           const tanggal = parseTglText(r[2]) || parseTglText(r[0]); const nilai = parseNumText(r[5]);
-          if (!tanggal || !nilai) throw new Error('tanggal/jumlah kosong');
+          if (!tanggal || !(nilai > 0)) throw new Error('tanggal kosong atau jumlah tidak valid');
           const rumahTxt = (r[4] || '').trim(); const months = parseBulanText(r[6]);
           const dompet_id = dompetOf(r[3]);
           if (!rumahTxt) { plan.transaksi.push({ id: uuid(), tipe: 'pemasukan', tanggal, nilai, dompet_id, bulan: months[0] || tanggal.slice(0, 7), keterangan: 'Impor: pemasukan lain' }); return; }
@@ -1457,7 +1493,7 @@
           ms.forEach((m, j) => plan.iuran_bulan.push({ id: uuid(), transaksi_id: id, rumah_id: rm.id, bulan: m, nominal: j === ms.length - 1 ? nilai - per * (ms.length - 1) : per }));
         } else if (tipe.startsWith('pengeluaran')) {
           const tanggal = parseTglText(r[8]) || parseTglText(r[0]); const nilai = parseNumText(r[10]);
-          if (!tanggal || !nilai) throw new Error('tanggal/nilai kosong');
+          if (!tanggal || !(nilai > 0)) throw new Error('tanggal kosong atau nilai tidak valid');
           plan.transaksi.push({ id: uuid(), tipe: 'pengeluaran', tanggal, nilai, dompet_id: dompetOf(r[14]), kategori_id: katOf(r[11]), bulan: parseBulanText(r[13])[0] || tanggal.slice(0, 7), keterangan: (r[9] || '').trim() });
         } else throw new Error('tipe tidak dikenali');
       } catch (e) { plan.skip.push(`Baris ${line}: ${e.message}`); }
@@ -1494,7 +1530,7 @@
       setTimeout(() => { if (window[cb]) { done(); reject(new Error(`Waktu habis saat membaca tab "${sheet}"`)); } }, 30000);
     });
   }
-  const numSheet = v => typeof v === 'number' ? v : (parseFloat(String(v || '').replace(/rp|\s|,/gi, '')) || 0);
+  const numSheet = v => typeof v === 'number' ? v : parseNumText(v);
   function ymSheet(v) {
     const s = String(v || '').trim();
     const b = parseBulanText(s); if (b.length) return b[0];
@@ -1579,7 +1615,7 @@
       try {
         if (tipe.startsWith('pemasukan')) {
           const tanggal = tglSheet(r[2]) || tglSheet(r[0]); const nilai = numSheet(r[5]);
-          if (!tanggal || !nilai) throw new Error('tanggal/jumlah kosong');
+          if (!tanggal || !(nilai > 0)) throw new Error('tanggal kosong atau jumlah tidak valid');
           const dompet_id = dompetOf(r[3]); const txt = String(r[4] || '').trim(); const bulan = ymSheet(r[6]) || tanggal.slice(0, 7);
           const rm = /^KB\d/i.test(txt) ? addRumah(txt, nilai) : null;
           if (!rm) { P.transaksi.push({ id: uuid(), tipe: 'pemasukan', tanggal, nilai, dompet_id, bulan, keterangan: txt || 'Pemasukan lain' }); return; }
@@ -1588,7 +1624,7 @@
           P.iuran_bulan.push({ id: uuid(), transaksi_id: id, rumah_id: rm.id, bulan, nominal: nilai });
         } else if (tipe.startsWith('pengeluaran')) {
           const tanggal = tglSheet(r[8]) || tglSheet(r[0]); const nilai = numSheet(r[10]);
-          if (!tanggal || !nilai) throw new Error('tanggal/nilai kosong');
+          if (!tanggal || !(nilai > 0)) throw new Error('tanggal kosong atau nilai tidak valid');
           const ket = String(r[9] || '').trim(), katTxt = String(r[11] || 'Lainnya');
           const row = { id: uuid(), tipe: 'pengeluaran', tanggal, nilai, dompet_id: dompetOf(r[14]), kategori_id: katOf(katTxt), bulan: ymSheet(r[13]) || tanggal.slice(0, 7), keterangan: ket };
           if (/gaji|lembur/i.test(katTxt)) {
@@ -1669,8 +1705,8 @@
 
   function pgImpor(el) {
     el.innerHTML = `
-      <div class="panel"><h3>Ekspor laporan</h3><p class="hint">Laporan PDF siap cetak: ringkasan bulanan, rekap bayar warga, rekap pengeluaran 3 bulan terakhir, dan gaji mitra bulan terakhir.</p>
-        <div class="toolbar">${yearSelect()}<button class="btn primary" id="pdfBtn">Unduh PDF</button></div>${framed ? '<p class="hint">Unduhan file tidak bisa berjalan di halaman preview ini. Akan berfungsi setelah aplikasi dipasang di GitHub Pages.</p>' : ''}</div>
+      <div class="panel"><h3>Ekspor laporan</h3><p class="hint">Laporan PDF siap cetak: ringkasan bulanan, rekap bayar warga, rekap pengeluaran 3 bulan terakhir, dan gaji mitra bulan terakhir. Excel berisi semua transaksi tahun terpilih, ringkasan, rekap bayar, dan pengeluaran per kategori.</p>
+        <div class="toolbar">${yearSelect()}<button class="btn primary" id="pdfBtn">Unduh PDF</button><button class="btn" id="xlsBtn">Unduh Excel</button></div>${framed ? '<p class="hint">Unduhan file tidak bisa berjalan di halaman preview ini. Akan berfungsi setelah aplikasi dipasang di GitHub Pages.</p>' : ''}</div>
       <div class="panel rw"><h3>Migrasi dari Google Sheet lama</h3>
         <p class="hint">Mengambil langsung dari Google Sheet (tab Data, Besaran IPL, Rekap Bayar Warga, Gaji Mitra, Hutang Mitra, Note, Ringkasan, Rekap Tunai). Browser ini harus login ke akun Google yang punya akses ke sheet. Jalankan sekali saja.</p>
         <div class="toolbar"><label style="flex:1;min-width:240px">Link Google Sheet<input id="migUrl" placeholder="https://docs.google.com/spreadsheets/d/..."></label><button class="btn primary" id="migCek">Periksa data</button></div>
@@ -1681,6 +1717,7 @@
       ${DB.demo ? '<div class="panel"><h3>Mode demo</h3><p class="hint">Kembalikan data contoh ke kondisi awal.</p><button class="btn danger" id="resetDemo">Reset data demo</button></div>' : ''}`;
     bindYear(el, rerender);
     $('#pdfBtn', el).onclick = exportPdf;
+    $('#xlsBtn', el).onclick = exportExcel;
     if ($('#resetDemo', el)) $('#resetDemo', el).onclick = async () => { if (await ask('Reset semua data demo?')) { DB.resetDemo(); await loadAll(); toast('Data demo direset'); rerender(); } };
     $('#migCek', el).onclick = async () => {
       const box = $('#migBox', el), m = $('#migUrl', el).value.match(/\/d\/([\w-]{20,})/);
@@ -1721,8 +1758,11 @@
           <div class="card"><div class="label">Pengeluaran</div><div class="value">${n('pengeluaran')}</div></div>
           <div class="card"><div class="label">Rumah baru</div><div class="value">${plan.rumah.length}</div></div>
           <div class="card"><div class="label">Kategori / dompet baru</div><div class="value">${plan.kategori.length} / ${plan.dompet.length}</div></div>
+          <div class="card"><div class="label">Total iuran & pemasukan</div><div class="value">${rp(sum(plan.transaksi.filter(x => x.tipe !== 'pengeluaran'), x => x.nilai))}</div></div>
+          <div class="card"><div class="label">Total pengeluaran</div><div class="value">${rp(sum(plan.transaksi.filter(x => x.tipe === 'pengeluaran'), x => x.nilai))}</div></div>
           <div class="card"><div class="label">Baris dilewati</div><div class="value ${plan.skip.length ? 'neg' : ''}">${plan.skip.length}</div></div></div>
         ${plan.skip.length ? `<details><summary class="small">Lihat baris yang dilewati</summary><pre class="small">${esc(plan.skip.slice(0, 200).join('\n'))}</pre></details>` : ''}
+        <p class="hint">Cocokkan total di atas dengan total di Google Sheet sebelum mengimpor.</p>
         ${plan.rumah.length ? '<p class="hint">IPL rumah baru diisi dari pembayaran pertama. Periksa di Master Data setelah impor.</p>' : ''}
         <div class="form-actions"><button class="btn primary" id="doImp">Impor ${plan.transaksi.length} transaksi</button></div>`;
       $('#doImp', prev).onclick = async () => {
@@ -1828,8 +1868,23 @@
     { const t = todayISO(); doc.save(`Laporan-Keuangan-${t.slice(8, 10)}${t.slice(5, 7)}${t.slice(0, 4)}.pdf`); }
   }
 
-  function exportExcel() {
-    if (!window.XLSX) return warn('Library Excel belum termuat.');
+  // SheetJS hanya dimuat saat ekspor Excel (tidak di setiap halaman), dari CDN resmi dengan Subresource Integrity
+  const XLSX_SRC = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
+  const XLSX_SRI = 'sha384-EnyY0/GSHQGSxSgMwaIPzSESbqoOLSexfnSMN2AP+39Ckmn92stwABZynq1JyzdT';
+  let xlsxLoading = null;
+  function loadXlsx() {
+    if (window.XLSX) return Promise.resolve(window.XLSX);
+    if (!xlsxLoading) xlsxLoading = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = XLSX_SRC; s.integrity = XLSX_SRI; s.crossOrigin = 'anonymous';
+      s.onload = () => window.XLSX ? resolve(window.XLSX) : reject(new Error('Library Excel tidak termuat.'));
+      s.onerror = () => { xlsxLoading = null; s.remove(); reject(new Error('Library Excel gagal dimuat. Periksa koneksi internet.')); };
+      document.head.appendChild(s);
+    });
+    return xlsxLoading;
+  }
+  async function exportExcel() {
+    try { await loadXlsx(); } catch (e) { return warn(e.message); }
     const y = S.year, ms = monthsOfYear(y), wb = XLSX.utils.book_new();
     const tx = S.d.transaksi.filter(t => t.tanggal.startsWith(String(y)));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Tanggal', 'Tipe', 'Rumah', 'Bulan', 'Kategori', 'Mitra', 'Keterangan', 'Dompet', 'Dompet tujuan', 'Nilai'],
